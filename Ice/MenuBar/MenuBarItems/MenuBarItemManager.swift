@@ -356,7 +356,10 @@ extension MenuBarItemManager {
             let itemWindowIDs = currentItemWindowIDs ?? items.reversed().map { $0.windowID }
             await cacheActor.updateCachedItemWindowIDs(itemWindowIDs)
 
-            MenuBarItemTag.Namespace.pruneUUIDCache(keeping: Set(itemWindowIDs))
+            await MainActor.run {
+                MenuBarItemTag.Namespace.pruneUUIDCache(keeping: Set(itemWindowIDs))
+                self.pruneMoveOperationTimeouts(keeping: Set(items.map(\.tag)))
+            }
 
             guard let controlItems = ControlItemPair(items: &items) else {
                 // ???: Is clearing the cache the best thing to do here?
@@ -880,6 +883,12 @@ extension MenuBarItemManager {
         let average = (timeout + current) / 2
         let clamped = average.clamped(min: .milliseconds(25), max: .milliseconds(150))
         moveOperationTimeouts[item.tag] = clamped
+    }
+
+    /// Prunes the move operation timeouts cache, keeping only the entries
+    /// for the given valid tags.
+    private func pruneMoveOperationTimeouts(keeping validTags: Set<MenuBarItemTag>) {
+        moveOperationTimeouts = moveOperationTimeouts.filter { validTags.contains($0.key) }
     }
 
     /// Returns the target points for creating the events needed to
