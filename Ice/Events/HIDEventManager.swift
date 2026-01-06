@@ -93,7 +93,20 @@ final class HIDEventManager: ObservableObject {
         placement: .tailAppendEventTap,
         option: .listenOnly
     ) { [weak self] _, event in
-        if let self, isEnabled, let appState, let screen = bestScreen(appState: appState) {
+        guard let self, isEnabled else {
+            return event
+        }
+
+        /// Throttling: Only process every 5th event to reduce CPU usage.
+        enum Context {
+            static var eventCount = 0
+        }
+        Context.eventCount += 1
+        if Context.eventCount % 5 != 0 {
+            return event
+        }
+
+        if let appState, let screen = bestScreen(appState: appState) {
             handleShowOnHover(appState: appState, screen: screen)
         }
         return event
@@ -188,7 +201,6 @@ final class HIDEventManager: ObservableObject {
 // MARK: - Handler Methods
 
 extension HIDEventManager {
-
     // MARK: Handle Show On Click
 
     private func handleShowOnClick(appState: AppState, screen: NSScreen) {
@@ -273,8 +285,8 @@ extension HIDEventManager {
             guard
                 let mouseLocation = MouseHelpers.locationCoreGraphics,
                 let windowUnderMouse = WindowInfo.createWindows(option: .onScreen)
-                    .filter({ $0.layer < CGWindowLevelForKey(.cursorWindow) })
-                    .first(where: { $0.bounds.contains(mouseLocation) && $0.title?.isEmpty == false }),
+                .filter({ $0.layer < CGWindowLevelForKey(.cursorWindow) })
+                .first(where: { $0.bounds.contains(mouseLocation) && $0.title?.isEmpty == false }),
                 let owningApplication = windowUnderMouse.owningApplication
             else {
                 return
@@ -487,9 +499,9 @@ extension HIDEventManager {
 
         // Infer the menu bar frame from the screen frame.
         return mouseLocation.x >= screen.frame.minX &&
-        mouseLocation.x <= screen.frame.maxX &&
-        mouseLocation.y <= screen.frame.maxY &&
-        mouseLocation.y >= screen.visibleFrame.maxY
+            mouseLocation.x <= screen.frame.maxX &&
+            mouseLocation.y <= screen.frame.maxY &&
+            mouseLocation.y >= screen.visibleFrame.maxY
     }
 
     /// A Boolean value that indicates whether the mouse pointer is within
@@ -512,8 +524,21 @@ extension HIDEventManager {
         guard let mouseLocation = MouseHelpers.locationCoreGraphics else {
             return false
         }
-        let windowIDs = Bridging.getMenuBarWindowList(option: [.onScreen, .activeSpace, .itemsOnly])
-        return windowIDs.contains { windowID in
+
+        // Cache the window list to avoid repeated Window Server calls.
+        // The cache is invalidated after 0.5 seconds or when the mouse click state changes.
+        enum Context {
+            static var cachedWindowIDs = [CGWindowID]()
+            static var lastUpdate: TimeInterval = 0
+        }
+
+        let now = Date.timeIntervalSinceReferenceDate
+        if now - Context.lastUpdate > 0.5 {
+            Context.cachedWindowIDs = Bridging.getMenuBarWindowList(option: [.onScreen, .activeSpace, .itemsOnly])
+            Context.lastUpdate = now
+        }
+
+        return Context.cachedWindowIDs.contains { windowID in
             guard let bounds = Bridging.getWindowBounds(for: windowID) else {
                 return false
             }
@@ -539,10 +564,16 @@ extension HIDEventManager {
     /// A Boolean value that indicates whether the mouse pointer is within
     /// the bounds of an empty space in the menu bar.
     func isMouseInsideEmptyMenuBarSpace(appState: AppState, screen: NSScreen) -> Bool {
-        isMouseInsideMenuBar(appState: appState, screen: screen) &&
-        !isMouseInsideApplicationMenu(appState: appState, screen: screen) &&
-        !isMouseInsideMenuBarItem(appState: appState, screen: screen) &&
-        !isMouseInsideNotch(appState: appState, screen: screen)
+        /// Perform cheap geometric checks first.
+        guard
+            isMouseInsideMenuBar(appState: appState, screen: screen),
+            !isMouseInsideNotch(appState: appState, screen: screen)
+        else {
+            return false
+        }
+
+        /// Then perform expensive Window Server checks.
+        return !isMouseInsideApplicationMenu(appState: appState, screen: screen) && !isMouseInsideMenuBarItem(appState: appState, screen: screen)
     }
 
     /// A Boolean value that indicates whether the mouse pointer is within
@@ -582,7 +613,7 @@ private protocol EventMonitorProtocol {
     func stop()
 }
 
-extension EventMonitor: EventMonitorProtocol { }
+extension EventMonitor: EventMonitorProtocol {}
 
 extension EventTap: EventMonitorProtocol {
     fileprivate func start() {
