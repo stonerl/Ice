@@ -329,8 +329,14 @@ private extension MenuBarItemTag {
 
 // MARK: - MenuBarItemTag.Namespace Helper
 
-private extension MenuBarItemTag.Namespace {
+extension MenuBarItemTag.Namespace {
     private static var uuidCache = [CGWindowID: UUID]()
+
+    /// Prunes the UUID cache, keeping only the entries for the given
+    /// valid window identifiers.
+    static func pruneUUIDCache(keeping validWindowIDs: Set<CGWindowID>) {
+        uuidCache = uuidCache.filter { validWindowIDs.contains($0.key) }
+    }
 
     /// Creates a namespace without checks.
     ///
