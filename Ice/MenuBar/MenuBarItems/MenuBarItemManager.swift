@@ -356,6 +356,8 @@ extension MenuBarItemManager {
             let itemWindowIDs = currentItemWindowIDs ?? items.reversed().map { $0.windowID }
             await cacheActor.updateCachedItemWindowIDs(itemWindowIDs)
 
+            MenuBarItemTag.Namespace.pruneUUIDCache(keeping: Set(itemWindowIDs))
+
             guard let controlItems = ControlItemPair(items: &items) else {
                 // ???: Is clearing the cache the best thing to do here?
                 logger.warning("Missing control item for hidden section, clearing menu bar item cache")
