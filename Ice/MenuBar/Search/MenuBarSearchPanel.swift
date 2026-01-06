@@ -30,8 +30,7 @@ final class MenuBarSearchPanel: NSPanel {
         else {
             return event
         }
-        if !appState.itemManager.lastMoveOperationOccurred(within: .seconds(1))
-        {
+        if !appState.itemManager.lastMoveOperationOccurred(within: .seconds(1)) {
             close()
         }
         return event
@@ -75,6 +74,7 @@ final class MenuBarSearchPanel: NSPanel {
         self.collectionBehavior = [
             .fullScreenAuxiliary, .ignoresCycle, .moveToActiveSpace,
         ]
+        setFrameAutosaveName("MenuBarSearchPanel")
     }
 
     /// Performs the initial setup of the panel.
@@ -135,18 +135,27 @@ final class MenuBarSearchPanel: NSPanel {
                 panel: self
             )
             hostingView.setFrameSize(hostingView.intrinsicContentSize)
-            setFrame(hostingView.frame, display: true)
+
+            // Only set initial position if we don't have a saved frame,
+            // or if the saved frame is off-screen.
+            if !setFrameUsingName(frameAutosaveName) {
+                // Calculate the centered position.
+                let centered = CGPoint(
+                    x: screen.frame.midX - frame.width / 2,
+                    y: screen.frame.midY - frame.height / 2
+                )
+
+                setFrame(CGRect(origin: centered, size: hostingView.intrinsicContentSize), display: false)
+                center()
+            } else {
+                // We restored a frame, but let's make sure the content size is correct
+                // and it's on the correct screen if requested
+                var newFrame = frame
+                newFrame.size = hostingView.intrinsicContentSize
+                setFrame(newFrame, display: false)
+            }
 
             contentView = hostingView
-
-            // Calculate the top left position.
-            let topLeft = CGPoint(
-                x: screen.frame.midX - frame.width / 2,
-                y: screen.frame.midY + (frame.height / 2)
-                    + (screen.frame.height / 8)
-            )
-
-            cascadeTopLeft(from: topLeft)
             makeKeyAndOrderFront(nil)
 
             mouseDownMonitor.start()
@@ -296,9 +305,7 @@ private struct MenuBarSearchContentView: View {
 
             Spacer()
 
-            if let selection = model.selection,
-                let item = menuBarItem(for: selection)
-            {
+            if let selection = model.selection, let item = menuBarItem(for: selection) {
                 ShowItemButton(item: item) {
                     performAction(for: item)
                 }
@@ -497,7 +504,7 @@ private struct BottomBarButtonStyle: ButtonStyle {
 private let controlCenterIcon: NSImage? = {
     guard
         let app =
-            NSRunningApplication
+        NSRunningApplication
             .runningApplications(
                 withBundleIdentifier: "com.apple.controlcenter"
             )
