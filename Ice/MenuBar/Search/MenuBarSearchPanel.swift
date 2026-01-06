@@ -74,7 +74,7 @@ final class MenuBarSearchPanel: NSPanel {
         self.collectionBehavior = [
             .fullScreenAuxiliary, .ignoresCycle, .moveToActiveSpace,
         ]
-        setFrameAutosaveName("MenuBarSearchPanel")
+        // setFrameAutosaveName("MenuBarSearchPanel") // Manual persistence is used instead.
     }
 
     /// Performs the initial setup of the panel.
@@ -91,6 +91,17 @@ final class MenuBarSearchPanel: NSPanel {
         NSApp.publisher(for: \.effectiveAppearance)
             .sink { [weak self] effectiveAppearance in
                 self?.appearance = effectiveAppearance
+            }
+            .store(in: &c)
+
+        // Save the frame when the application terminates.
+        NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                // saveFrame(usingName: frameAutosaveName)
+                if let frameString = frame.dictionaryRepresentation as NSDictionary? {
+                    Defaults.set(frameString, forKey: .menuBarSearchPanelFrame)
+                }
             }
             .store(in: &c)
 
@@ -138,7 +149,16 @@ final class MenuBarSearchPanel: NSPanel {
 
             // Only set initial position if we don't have a saved frame,
             // or if the saved frame is off-screen.
-            if !setFrameUsingName(frameAutosaveName) {
+            if
+                let frameDict = Defaults.dictionary(forKey: .menuBarSearchPanelFrame),
+                let savedFrame = CGRect(dictionaryRepresentation: frameDict as CFDictionary)
+            {
+                // We restored a frame, but let's make sure the content size is correct
+                // and it's on the correct screen if requested
+                var newFrame = savedFrame
+                newFrame.size = hostingView.intrinsicContentSize
+                setFrame(newFrame, display: false)
+            } else {
                 // Calculate the centered position.
                 let centered = CGPoint(
                     x: screen.frame.midX - frame.width / 2,
@@ -147,12 +167,6 @@ final class MenuBarSearchPanel: NSPanel {
 
                 setFrame(CGRect(origin: centered, size: hostingView.intrinsicContentSize), display: false)
                 center()
-            } else {
-                // We restored a frame, but let's make sure the content size is correct
-                // and it's on the correct screen if requested
-                var newFrame = frame
-                newFrame.size = hostingView.intrinsicContentSize
-                setFrame(newFrame, display: false)
             }
 
             contentView = hostingView
@@ -170,6 +184,10 @@ final class MenuBarSearchPanel: NSPanel {
 
     /// Dismisses the search panel.
     override func close() {
+        // saveFrame(usingName: frameAutosaveName)
+        if let frameString = frame.dictionaryRepresentation as NSDictionary? {
+            Defaults.set(frameString, forKey: .menuBarSearchPanelFrame)
+        }
         super.close()
         contentView = nil
         mouseDownMonitor.stop()
