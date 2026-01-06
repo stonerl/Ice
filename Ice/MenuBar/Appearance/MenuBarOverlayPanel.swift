@@ -326,8 +326,8 @@ final class MenuBarOverlayPanel: NSPanel {
         }
 
         // Validate before showing to ensure panel should be visible on this screen.
-        let windows = WindowInfo.getOnScreenWindows()
-        guard validate(for: .showing, with: windows) != nil else {
+        let windows = WindowInfo.createWindows(option: .onScreen)
+        guard validate(for: .showing, with: windows) else {
             return
         }
 
