@@ -31,10 +31,14 @@ final class HIDEventManager: ObservableObject {
                 for monitor in allMonitors {
                     monitor.start()
                 }
+                if let appState, appState.settings.general.showOnHover {
+                    mouseMovedTap.start()
+                }
             } else {
                 for monitor in allMonitors {
                     monitor.stop()
                 }
+                mouseMovedTap.stop()
             }
         }
     }
@@ -112,7 +116,6 @@ final class HIDEventManager: ObservableObject {
         mouseDownMonitor,
         mouseUpMonitor,
         mouseDraggedMonitor,
-        mouseMovedTap,
         scrollWheelMonitor,
     ]
 
@@ -129,25 +132,40 @@ final class HIDEventManager: ObservableObject {
     private func configureCancellables() {
         var c = Set<AnyCancellable>()
 
-        if let appState, let hiddenSection = appState.menuBarManager.section(withName: .hidden) {
-            // In fullscreen mode, the menu bar slides down from the top on hover. Observe the
-            // frame of the hidden section's control item, which we know will always be in the
-            // menu bar, and run the show-on-hover check when it changes.
-            Publishers.CombineLatest3(
-                hiddenSection.controlItem.$frame,
-                appState.$activeSpace.map(\.isFullscreen),
-                appState.menuBarManager.$isMenuBarHiddenBySystem
-            )
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak appState] _, isFullscreen, isMenuBarHiddenBySystem in
-                guard let self, isEnabled, let appState, isFullscreen || isMenuBarHiddenBySystem else {
-                    return
+        if let appState {
+            appState.settings.general.$showOnHover
+                .sink { [weak self] showOnHover in
+                    guard let self, isEnabled else {
+                        return
+                    }
+                    if showOnHover {
+                        mouseMovedTap.start()
+                    } else {
+                        mouseMovedTap.stop()
+                    }
                 }
-                if let screen = bestScreen(appState: appState) {
-                    handleShowOnHover(appState: appState, screen: screen)
+                .store(in: &c)
+
+            if let hiddenSection = appState.menuBarManager.section(withName: .hidden) {
+                // In fullscreen mode, the menu bar slides down from the top on hover. Observe the
+                // frame of the hidden section's control item, which we know will always be in the
+                // menu bar, and run the show-on-hover check when it changes.
+                Publishers.CombineLatest3(
+                    hiddenSection.controlItem.$frame,
+                    appState.$activeSpace.map(\.isFullscreen),
+                    appState.menuBarManager.$isMenuBarHiddenBySystem
+                )
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self, weak appState] _, isFullscreen, isMenuBarHiddenBySystem in
+                    guard let self, isEnabled, let appState, isFullscreen || isMenuBarHiddenBySystem else {
+                        return
+                    }
+                    if let screen = bestScreen(appState: appState) {
+                        handleShowOnHover(appState: appState, screen: screen)
+                    }
                 }
+                .store(in: &c)
             }
-            .store(in: &c)
         }
 
         cancellables = c
