@@ -157,16 +157,41 @@ final class MenuBarSearchPanel: NSPanel {
                 // and it's on the correct screen if requested
                 var newFrame = savedFrame
                 newFrame.size = hostingView.intrinsicContentSize
+
+                if let savedScreen = NSScreen.screens.first(where: { $0.frame.intersects(savedFrame) }) {
+                    // Calculate relative center position (0.0 to 1.0) based on visible frame (excluding menu bar)
+                    let savedVisibleFrame = savedScreen.visibleFrame
+                    let relMidX = (savedFrame.midX - savedVisibleFrame.minX) / savedVisibleFrame.width
+                    let relMidY = (savedFrame.midY - savedVisibleFrame.minY) / savedVisibleFrame.height
+
+                    // Apply to new screen's visible frame to get new center
+                    let currentVisibleFrame = screen.visibleFrame
+                    let newMidX = currentVisibleFrame.minX + (relMidX * currentVisibleFrame.width)
+                    let newMidY = currentVisibleFrame.minY + (relMidY * currentVisibleFrame.height)
+
+                    // Calculate new origin based on new center and window size
+                    let newOriginX = newMidX - (newFrame.width / 2)
+                    let newOriginY = newMidY - (newFrame.height / 2)
+
+                    newFrame.origin = CGPoint(x: newOriginX, y: newOriginY)
+                } else {
+                    let centered = CGPoint(
+                        x: screen.frame.midX - newFrame.width / 2,
+                        y: screen.frame.midY - newFrame.height / 2
+                    )
+                    newFrame.origin = centered
+                }
+
                 setFrame(newFrame, display: false)
             } else {
                 // Calculate the centered position.
                 let centered = CGPoint(
-                    x: screen.frame.midX - frame.width / 2,
-                    y: screen.frame.midY - frame.height / 2
+                    x: screen.frame.midX - hostingView.intrinsicContentSize.width / 2,
+                    y: screen.frame.midY - hostingView.intrinsicContentSize.height / 2
                 )
 
                 setFrame(CGRect(origin: centered, size: hostingView.intrinsicContentSize), display: false)
-                center()
+                // center() // Not needed if we calculated it manually
             }
 
             contentView = hostingView
