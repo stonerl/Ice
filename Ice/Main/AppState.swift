@@ -85,6 +85,12 @@ final class AppState: ObservableObject {
             Task {
                 logger.debug("Setting up app state")
                 await setupTask.value
+
+                // Warm up the activation policy system.
+                NSApp.setActivationPolicy(.regular)
+                try? await Task.sleep(for: .milliseconds(50))
+                NSApp.setActivationPolicy(.accessory)
+
                 logger.debug("Finished setting up app state")
             }
         } else {
@@ -245,6 +251,7 @@ final class AppState: ObservableObject {
         if let policy {
             NSApp.setActivationPolicy(policy)
         }
+
         // NSApplication.activate(ignoringOtherApps:) is deprecated, with
         // no suitable alternative for explicit activation, so we activate
         // through NSRunningApplication.current for now.
@@ -252,6 +259,7 @@ final class AppState: ObservableObject {
             NSRunningApplication.current.activate()
             return
         }
+
         NSRunningApplication.current.activate(from: frontmost)
     }
 

@@ -171,44 +171,46 @@ final class MenuBarManager: ObservableObject {
                 }
 
                 if sections.contains(where: { $0.controlItem.state == .showSection }) {
-                    guard let screen = NSScreen.main else {
-                        return
-                    }
-
-                    // Get the application menu frame for the display.
-                    guard let applicationMenuFrame = screen.getApplicationMenuFrame() else {
+                    guard let screen = NSScreen.screenWithMouse ?? NSScreen.main else {
                         return
                     }
 
                     Task {
-                        // Get all items.
-                        var items = await MenuBarItem.getMenuBarItems(on: screen.displayID, option: .activeSpace)
+                        for delay in [25, 50, 100] {
+                            // The window server needs time to update window positions after expansion.
+                            try? await Task.sleep(for: .milliseconds(delay))
 
-                        // Filter the items down according to the currently enabled/shown sections.
-                        if
-                            let alwaysHiddenSection = self.section(withName: .alwaysHidden),
-                            alwaysHiddenSection.isEnabled
-                        {
-                            if alwaysHiddenSection.controlItem.state == .hideSection {
-                                if let alwaysHiddenControlItem = items.firstIndex(matching: .alwaysHiddenControlItem).map({ items.remove(at: $0) }) {
-                                    items.trimPrefix { $0.bounds.maxX <= alwaysHiddenControlItem.bounds.minX }
+                            // Get the application menu frame for the display.
+                            guard let applicationMenuFrame = screen.getApplicationMenuFrame() else {
+                                continue
+                            }
+
+                            // Get all items.
+                            var items = await MenuBarItem.getMenuBarItems(on: screen.displayID, option: .activeSpace)
+
+                            // Filter the items down according to the currently enabled/shown sections.
+                            if
+                                let alwaysHiddenSection = self.section(withName: .alwaysHidden),
+                                alwaysHiddenSection.isEnabled
+                            {
+                                if alwaysHiddenSection.controlItem.state == .hideSection {
+                                    if let alwaysHiddenControlItem = items.firstIndex(matching: .alwaysHiddenControlItem).map({ items.remove(at: $0) }) {
+                                        items.removeAll { $0.bounds.maxX <= alwaysHiddenControlItem.bounds.minX }
+                                    }
                                 }
                             }
-                        } else {
-                            if let hiddenControlItem = items.firstIndex(matching: .hiddenControlItem).map({ items.remove(at: $0) }) {
-                                items.trimPrefix { $0.bounds.maxX <= hiddenControlItem.bounds.minX }
+
+                            // Get the leftmost item on the screen.
+                            guard let leftmostItem = items.min(by: { $0.bounds.minX < $1.bounds.minX }) else {
+                                continue
                             }
-                        }
 
-                        // Get the leftmost item on the screen.
-                        guard let leftmostItem = items.min(by: { $0.bounds.minX < $1.bounds.minX }) else {
-                            return
-                        }
-
-                        // If the minX of the item is less than or equal to the maxX of the
-                        // application menu frame, activate the app to hide the menu.
-                        if leftmostItem.bounds.minX <= applicationMenuFrame.maxX {
-                            self.hideApplicationMenus()
+                            // If the item overlaps with the application menu frame (with a small buffer),
+                            // activate the app to hide the menu.
+                            if leftmostItem.bounds.minX <= (applicationMenuFrame.maxX + 30) {
+                                self.hideApplicationMenus()
+                                return
+                            }
                         }
                     }
                 } else if isHidingApplicationMenus {
@@ -301,9 +303,26 @@ final class MenuBarManager: ObservableObject {
             logger.error("Error hiding application menus: Missing app state")
             return
         }
+
+        if isHidingApplicationMenus {
+            return
+        }
+
         logger.info("Hiding application menus")
-        appState.activate(withPolicy: .regular)
         isHidingApplicationMenus = true
+
+        // Ensure this happens on the main thread
+        Task { @MainActor in
+            guard isHidingApplicationMenus else { return }
+
+            appState.activate(withPolicy: .regular)
+
+            // Force activation again after a micro-delay.
+            // The first activation after policy change can sometimes be ignored by the system.
+            try? await Task.sleep(for: .milliseconds(25))
+            guard isHidingApplicationMenus else { return }
+            appState.activate()
+        }
     }
 
     /// Shows the application menus.

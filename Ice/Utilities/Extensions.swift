@@ -26,7 +26,7 @@ extension Bundle {
     /// cannot be found for either key, this accessor returns `nil`.
     var displayName: String? {
         object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ??
-        object(forInfoDictionaryKey: "CFBundleName") as? String
+            object(forInfoDictionaryKey: "CFBundleName") as? String
     }
 
     /// The bundle's version string.
@@ -67,7 +67,6 @@ extension CGColor {
 // MARK: - CGImage
 
 extension CGImage {
-
     // MARK: Color Averaging
 
     /// Options that effect how colors are processed when computing
@@ -91,7 +90,7 @@ extension CGImage {
     ///   - option: Options for computing the color.
     func averageColor(using colorSpace: CGColorSpace? = nil, alphaThreshold: CGFloat = 0.5, option: ColorAveragingOption = []) -> CGColor? {
         func createPixelData(width: Int, height: Int, colorSpace: CGColorSpace) -> [UInt32]? {
-            guard width > 0 && height > 0 else {
+            guard width > 0, height > 0 else {
                 return nil
             }
             var data = [UInt32](repeating: 0, count: width * height)
@@ -136,7 +135,7 @@ extension CGImage {
         }
 
         // Convert the alpha threshold to a valid component for comparison.
-        let alphaThreshold = UInt64((alphaThreshold.clamped(to: 0...1) * 255).rounded(.toNearestOrAwayFromZero))
+        let alphaThreshold = UInt64((alphaThreshold.clamped(to: 0 ... 1) * 255).rounded(.toNearestOrAwayFromZero))
 
         var count = UInt64(width * height)
         var totals: (r: UInt64, g: UInt64, b: UInt64, a: UInt64) = (0, 0, 0, 0)
@@ -553,6 +552,32 @@ extension NSScreen {
     func getApplicationMenuFrame() -> CGRect? {
         let displayBounds = CGDisplayBounds(displayID)
 
+        // Accessibility API has trouble with secondary screens.
+        // If we are not on the main screen, we can construct a
+        // reasonable approximation.
+        if let mainScreen = NSScreen.main, self != mainScreen {
+            // Check if we can get the menu bar frame from the accessibility API.
+            if
+                let menuBar = AXHelpers.element(at: displayBounds.origin),
+                AXHelpers.role(for: menuBar) == .menuBar
+            {
+                let applicationMenuFrame = AXHelpers.children(for: menuBar).reduce(into: CGRect.null) { result, child in
+                    if AXHelpers.isEnabled(child), let childFrame = AXHelpers.frame(for: child) {
+                        result = result.union(childFrame)
+                    }
+                }
+                if !applicationMenuFrame.isNull, applicationMenuFrame.width > 0 {
+                    // If we got a valid width, assume it starts at the screen's left edge.
+                    return CGRect(x: frame.minX, y: applicationMenuFrame.minY, width: applicationMenuFrame.width, height: applicationMenuFrame.height)
+                }
+            }
+            // Fallback: If AX fails for secondary screen, try getting main screen's menu width
+            if let mainFrame = mainScreen.getApplicationMenuFrame() {
+                return CGRect(x: frame.minX, y: mainFrame.minY, width: mainFrame.width, height: mainFrame.height)
+            }
+            return nil
+        }
+
         guard
             let menuBar = AXHelpers.element(at: displayBounds.origin),
             AXHelpers.role(for: menuBar) == .menuBar
@@ -567,22 +592,6 @@ extension NSScreen {
         }
 
         if applicationMenuFrame.width <= 0 || applicationMenuFrame.isNull {
-            return nil
-        }
-
-        // FIXME: The Accessibility API always returns the menu bar for the main screen.
-        // This can cause issues if one of the screens has a notch, since long app menus
-        // can display items the trailing side of the notch. This causes the frame to be
-        // invalid for all other screens. For now, we're working around this by checking
-        // the app menu's frame on inactive screens, and returning `nil` if it overlaps
-        // with the notch.
-        if
-            let mainScreen = NSScreen.main,
-            self != mainScreen,
-            let notchedScreen = NSScreen.screens.first(where: { $0.hasNotch }),
-            let leftArea = notchedScreen.auxiliaryTopLeftArea,
-            applicationMenuFrame.width >= leftArea.maxX
-        {
             return nil
         }
 
