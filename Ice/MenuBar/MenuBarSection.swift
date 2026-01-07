@@ -240,50 +240,65 @@ final class MenuBarSection {
 
         guard
             let appState,
-            appState.settings.general.autoRehide,
-            case .timed = appState.settings.general.rehideStrategy
+            appState.settings.general.autoRehide
         else {
             return
         }
 
-        rehideMonitor = EventMonitor.universal(for: .mouseMoved) { [weak self] event in
-            guard
-                let self,
-                let screen = NSScreen.main
-            else {
-                return event
+        switch appState.settings.general.rehideStrategy {
+        case .smart:
+            // Smart rehide strategy uses the rehide interval as a fallback
+            // to the click-based rehide checks.
+            rehideTimer = .scheduledTimer(
+                withTimeInterval: appState.settings.general.rehideInterval,
+                repeats: false
+            ) { [weak self] _ in
+                Task {
+                    await self?.hide()
+                }
             }
-            if NSEvent.mouseLocation.y < screen.visibleFrame.maxY {
-                if rehideTimer == nil {
-                    rehideTimer = .scheduledTimer(
-                        withTimeInterval: appState.settings.general.rehideInterval,
-                        repeats: false
-                    ) { [weak self] _ in
-                        guard
-                            let self,
-                            let screen = NSScreen.main
-                        else {
-                            return
-                        }
-                        if NSEvent.mouseLocation.y < screen.visibleFrame.maxY {
-                            Task {
-                                await self.hide()
+        case .timed:
+            rehideMonitor = EventMonitor.universal(for: .mouseMoved) { [weak self] event in
+                guard
+                    let self,
+                    let screen = NSScreen.main
+                else {
+                    return event
+                }
+                if NSEvent.mouseLocation.y < screen.visibleFrame.maxY {
+                    if rehideTimer == nil {
+                        rehideTimer = .scheduledTimer(
+                            withTimeInterval: appState.settings.general.rehideInterval,
+                            repeats: false
+                        ) { [weak self] _ in
+                            guard
+                                let self,
+                                let screen = NSScreen.main
+                            else {
+                                return
                             }
-                        } else {
-                            Task {
-                                await self.startRehideChecks()
+                            if NSEvent.mouseLocation.y < screen.visibleFrame.maxY {
+                                Task {
+                                    await self.hide()
+                                }
+                            } else {
+                                Task {
+                                    await self.startRehideChecks()
+                                }
                             }
                         }
                     }
+                } else {
+                    rehideTimer?.invalidate()
+                    rehideTimer = nil
                 }
-            } else {
-                rehideTimer?.invalidate()
-                rehideTimer = nil
+                return event
             }
-            return event
-        }
 
-        rehideMonitor?.start()
+            rehideMonitor?.start()
+        case .focusedApp:
+            break
+        }
     }
 
     /// Stops running checks to determine when to rehide the section.
