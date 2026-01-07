@@ -1582,6 +1582,22 @@ extension MenuBarItemManager {
             logger.error("Error enforcing control item order: \(error, privacy: .public)")
         }
     }
+
+    /// Returns a Boolean value that indicates whether any menu bar item
+    /// currently has a menu open.
+    func isAnyMenuBarItemMenuOpen() async -> Bool {
+        // Get all menu bar items that are currently on screen.
+        let items = await MenuBarItem.getMenuBarItems(option: .onScreen)
+        let sourcePIDs = Set(items.compactMap { $0.sourcePID })
+
+        // Get all on-screen windows.
+        let windows = WindowInfo.createWindows(option: .onScreen)
+
+        // Check if any of the items' owning applications have a menu-related window.
+        return windows.contains { window in
+            sourcePIDs.contains(window.ownerPID) && window.isMenuRelated && (window.title?.isEmpty ?? true)
+        }
+    }
 }
 
 // MARK: - MenuBarItemEventType

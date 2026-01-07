@@ -42,6 +42,20 @@ struct WindowInfo {
         ownerName == "Window Server"
     }
 
+    /// A Boolean value that indicates whether the window is a menu-related window.
+    ///
+    /// This property returns `true` if the window's layer corresponds to a
+    /// pop-up menu, status window, or main menu, or if it belongs to the
+    /// Window Server (which often owns the actual menu windows for apps).
+    var isMenuRelated: Bool {
+        let level = CGWindowLevel(Int32(layer))
+        return level == CGWindowLevelForKey(.popUpMenuWindow) ||
+            level == CGWindowLevelForKey(.popUpMenuWindow) - 1 || // Some menus are slightly below
+            level == CGWindowLevelForKey(.statusWindow) ||
+            level == CGWindowLevelForKey(.mainMenuWindow) ||
+            isWindowServerWindow
+    }
+
     /// Creates a window with the given dictionary.
     private init?(dictionary: CFDictionary) {
         guard

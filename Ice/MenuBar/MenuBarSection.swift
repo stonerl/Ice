@@ -254,6 +254,12 @@ final class MenuBarSection {
                 repeats: false
             ) { [weak self] _ in
                 Task {
+                    // Check if any menu bar item has a menu open before hiding.
+                    if await appState.itemManager.isAnyMenuBarItemMenuOpen() {
+                        // Restart the timer to check again later.
+                        await self?.startRehideChecks()
+                        return
+                    }
                     await self?.hide()
                 }
             }
@@ -279,6 +285,11 @@ final class MenuBarSection {
                             }
                             if NSEvent.mouseLocation.y < screen.visibleFrame.maxY {
                                 Task {
+                                    // Check if any menu bar item has a menu open before hiding.
+                                    if await appState.itemManager.isAnyMenuBarItemMenuOpen() {
+                                        await self.startRehideChecks()
+                                        return
+                                    }
                                     await self.hide()
                                 }
                             } else {

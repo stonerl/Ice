@@ -304,6 +304,11 @@ extension HIDEventManager {
                 }
             }
 
+            // Check if any menu bar item has a menu open.
+            if await appState.itemManager.isAnyMenuBarItemMenuOpen() {
+                return
+            }
+
             // All checks have passed, hide the sections.
             for section in appState.menuBarManager.sections {
                 section.hide()
