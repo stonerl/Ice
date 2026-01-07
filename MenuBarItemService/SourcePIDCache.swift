@@ -47,7 +47,6 @@ final class SourcePIDCache {
             // calling AX APIs while the app is an invalid state.
             runningApp.isFinishedLaunching &&
             !runningApp.isTerminated &&
-            runningApp.activationPolicy != .prohibited &&
             !Bridging.isProcessUnresponsive(processIdentifier)
         }
 
