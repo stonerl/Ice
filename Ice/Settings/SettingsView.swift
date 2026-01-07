@@ -68,7 +68,20 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var sidebar: some View {
-        List(selection: $navigationState.settingsNavigationIdentifier) {
+        // Use a Binding that wraps the navigation state to ensure updates happen
+        // on the main thread and avoid view update warnings.
+        let selection = Binding<SettingsNavigationIdentifier>(
+            get: { navigationState.settingsNavigationIdentifier },
+            set: { newValue in
+                if navigationState.settingsNavigationIdentifier != newValue {
+                    DispatchQueue.main.async {
+                        navigationState.settingsNavigationIdentifier = newValue
+                    }
+                }
+            }
+        )
+
+        List(selection: selection) {
             Section {
                 ForEach(SettingsNavigationIdentifier.allCases) { identifier in
                     sidebarItem(for: identifier)
