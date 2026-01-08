@@ -80,7 +80,7 @@ final class IceBarPanel: NSPanel {
             controlItem.$frame
                 .combineLatest(controlItem.$screen)
                 .throttle(for: 0.1, scheduler: DispatchQueue.main, latest: true)
-                .sink { [weak self] (frame, screen) in
+                .sink { [weak self] frame, screen in
                     guard let self else {
                         return
                     }
@@ -211,6 +211,9 @@ final class IceBarPanel: NSPanel {
     }
 
     override func close() {
+        if let appState, let section = currentSection {
+            appState.imageCache.clearImages(for: section)
+        }
         super.close()
         contentView = nil
         currentSection = nil
@@ -296,7 +299,7 @@ private struct IceBarContentView: View {
         guard let menuBarHeight = screen.getMenuBarHeight() else {
             return nil
         }
-        if configuration.shapeKind != .noShape && configuration.isInset && screen.hasNotch {
+        if configuration.shapeKind != .noShape, configuration.isInset, screen.hasNotch {
             return menuBarHeight - appState.appearanceManager.menuBarInsetAmount * 2
         }
         return menuBarHeight
@@ -544,5 +547,5 @@ private struct IceBarItemClickView: NSViewRepresentable {
         )
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) { }
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }

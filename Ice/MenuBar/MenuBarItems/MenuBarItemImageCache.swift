@@ -211,7 +211,7 @@ final class MenuBarItemImageCache: ObservableObject {
 
         // Merge the successfully captured images from each result. Keep excluded
         // items as part of the result, so they can be logged elsewhere.
-        individualResult.images.merge(compositeResult.images) { (_, new) in new }
+        individualResult.images.merge(compositeResult.images) { _, new in new }
 
         return individualResult
     }
@@ -261,7 +261,7 @@ final class MenuBarItemImageCache: ObservableObject {
                 continue
             }
 
-            newImages.merge(sectionImages) { (_, new) in new }
+            newImages.merge(sectionImages) { _, new in new }
         }
 
         // Get the set of valid item tags from all sections to clean up stale entries
@@ -271,7 +271,7 @@ final class MenuBarItemImageCache: ObservableObject {
             // Remove images for items that no longer exist in the item cache
             images = images.filter { allValidTags.contains($0.key) }
             // Merge in the new images
-            images.merge(newImages) { (_, new) in new }
+            images.merge(newImages) { _, new in new }
         }
     }
 
@@ -284,7 +284,7 @@ final class MenuBarItemImageCache: ObservableObject {
         let isIceBarPresented = await appState.navigationState.isIceBarPresented
         let isSearchPresented = await appState.navigationState.isSearchPresented
 
-        if !isIceBarPresented && !isSearchPresented {
+        if !isIceBarPresented, !isSearchPresented {
             guard
                 await appState.navigationState.isAppFrontmost,
                 await appState.navigationState.isSettingsPresented,
@@ -324,6 +324,16 @@ final class MenuBarItemImageCache: ObservableObject {
         }
 
         await updateCache(sections: sectionsNeedingDisplay)
+    }
+
+    /// Clears the images for the given section.
+    @MainActor
+    func clearImages(for section: MenuBarSection.Name) {
+        guard let appState else {
+            return
+        }
+        let tags = Set(appState.itemManager.itemCache[section].map(\.tag))
+        images = images.filter { !tags.contains($0.key) }
     }
 
     // MARK: Cache Failed
