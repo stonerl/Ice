@@ -116,7 +116,12 @@ extension Bridging {
         guard
             let string = CGSCopyActiveMenuBarDisplayIdentifier(getMainConnection()),
             let uuid = CFUUIDCreateFromString(nil, string.takeRetainedValue()),
-            let displayID = getActiveDisplayList().first(where: { getDisplayUUID(for: $0) == uuid })
+            let displayID = getActiveDisplayList().first(where: {
+                guard let displayUUID = getDisplayUUID(for: $0) else {
+                    return false
+                }
+                return CFEqual(displayUUID, uuid)
+            })
         else {
             return CGMainDisplayID()
         }
