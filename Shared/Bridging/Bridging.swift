@@ -436,7 +436,7 @@ extension Bridging {
 
     // MARK: - CGWindowList Helpers
 
-    /// Creates a `CFArray` containing the bit patterns of the given
+    /// Creates an `NSArray` containing the bit patterns of the given
     /// window list.
     ///
     /// Pass the returned array into one of the `CGWindowList` APIs
@@ -446,19 +446,17 @@ extension Bridging {
     ///   list is empty, or if none of its elements can represent a
     ///   valid bit pattern, this function returns `nil`.
     ///
-    /// - Returns: A `CFArray` where each element is a memory address
+    /// - Returns: An `NSArray` where each element is a memory address
     ///   with a bit pattern that matches an element from `windowIDs`,
     ///   or `nil` if the array cannot be created.
-    static func createCGWindowArray(with windowIDs: [CGWindowID]) -> CFArray? {
+    static func createCGWindowArray(with windowIDs: [CGWindowID]) -> NSArray? {
         var pointers: [UnsafeRawPointer?] = windowIDs.compactMap { windowID in
             UnsafeRawPointer(bitPattern: UInt(windowID))
         }
-        guard
-            !pointers.isEmpty,
-            let array = CFArrayCreate(nil, &pointers, pointers.count, nil)
-        else {
+        guard !pointers.isEmpty else {
             return nil
         }
-        return array
+        let array = CFArrayCreate(nil, &pointers, pointers.count, nil)
+        return array as NSArray?
     }
 }

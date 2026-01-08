@@ -4,6 +4,7 @@
 //
 
 import CoreGraphics
+import Foundation
 import ScreenCaptureKit
 
 /// A namespace for screen capture operations.
@@ -78,7 +79,7 @@ enum ScreenCapture {
         let bounds = screenBounds ?? .null
         // ScreenCaptureKit doesn't support capturing images of offscreen menu bar
         // items, so we unfortunately have to use the deprecated CGWindowList API.
-        return CGImage(windowListFromArrayScreenBounds: bounds, windowArray: array, imageOption: option)
+        return CGImage(windowListFromArrayScreenBounds: bounds, windowArray: array as CFArray, imageOption: option)
     }
 
     /// Captures an image of a window.
