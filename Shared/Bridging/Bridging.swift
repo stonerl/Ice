@@ -16,7 +16,6 @@ enum Bridging {
 // MARK: - CGSConnection
 
 extension Bridging {
-
     // MARK: Private Connection Helpers
 
     /// The identifier for the `null` window server connection.
@@ -75,7 +74,6 @@ extension Bridging {
 // MARK: - CGDisplay / CGSDisplay
 
 extension Bridging {
-
     // MARK: Private Display Helpers
 
     private static func getActiveDisplayCount() -> UInt32? {
@@ -461,7 +459,14 @@ extension Bridging {
         guard !pointers.isEmpty else {
             return nil
         }
-        let array = CFArrayCreate(nil, &pointers, pointers.count, nil)
+        var callbacks = CFArrayCallBacks(
+            version: 0,
+            retain: nil,
+            release: nil,
+            copyDescription: nil,
+            equal: nil
+        )
+        let array = CFArrayCreate(nil, &pointers, pointers.count, &callbacks)
         return array as NSArray?
     }
 }
