@@ -88,6 +88,14 @@ final class MenuBarItemManager: ObservableObject {
         }
         return timestamp.duration(to: .now) <= duration
     }
+
+    deinit {
+        // Ensure all resources are cleaned up
+        rehideTimer?.invalidate()
+        rehideTimer = nil
+        temporarilyShownItemContexts.removeAll()
+        cancellables.removeAll()
+    }
 }
 
 // MARK: - Item Cache
@@ -268,7 +276,7 @@ extension MenuBarItemManager {
                 case .hidden:
                     if let alwaysHiddenControlItemBounds {
                         return itemBounds.maxX <= hiddenControlItemBounds.minX &&
-                        itemBounds.minX >= alwaysHiddenControlItemBounds.maxX
+                            itemBounds.minX >= alwaysHiddenControlItemBounds.maxX
                     } else {
                         return itemBounds.maxX <= hiddenControlItemBounds.minX
                     }
@@ -463,9 +471,9 @@ extension MenuBarItemManager {
     ///   events must not have occured within in order to return `true`.
     private nonisolated func hasUserPausedInput(for duration: Duration) -> Bool {
         NSEvent.modifierFlags.isEmpty &&
-        !MouseHelpers.lastMovementOccurred(within: duration) &&
-        !MouseHelpers.lastScrollWheelOccurred(within: duration) &&
-        !MouseHelpers.isButtonPressed()
+            !MouseHelpers.lastMovementOccurred(within: duration) &&
+            !MouseHelpers.lastScrollWheelOccurred(within: duration) &&
+            !MouseHelpers.isButtonPressed()
     }
 
     /// Waits asynchronously for the user to pause input.
@@ -1407,7 +1415,7 @@ extension MenuBarItemManager {
 
         // Remove items until we have enough room to show this item.
         items.trimPrefix { item in
-            if item.isOnScreen && item.canBeHidden {
+            if item.isOnScreen, item.canBeHidden {
                 return item.bounds.minX <= maxX
             }
             return true

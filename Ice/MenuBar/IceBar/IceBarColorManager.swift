@@ -139,7 +139,7 @@ final class IceBarColorManager: ObservableObject {
         let imageBounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
 
         let insetScreenFrame = screen.frame.insetBy(dx: frame.width / 2, dy: 0)
-        let percentage = ((frame.midX - insetScreenFrame.minX) / insetScreenFrame.width).clamped(to: 0...1)
+        let percentage = ((frame.midX - insetScreenFrame.minX) / insetScreenFrame.width).clamped(to: 0 ... 1)
 
         let cropRect = CGRect(x: imageBounds.width * percentage, y: 0, width: 0, height: 1)
             .insetBy(dx: -150, dy: 0)
@@ -160,5 +160,11 @@ final class IceBarColorManager: ObservableObject {
     func updateAllProperties(with frame: CGRect, screen: NSScreen) {
         updateWindowImage(for: screen)
         updateColorInfo(with: frame, screen: screen)
+    }
+
+    deinit {
+        // Clean up resources
+        windowImage = nil
+        cancellables.removeAll()
     }
 }

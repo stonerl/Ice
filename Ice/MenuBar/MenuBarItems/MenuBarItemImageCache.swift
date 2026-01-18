@@ -268,10 +268,16 @@ final class MenuBarItemImageCache: ObservableObject {
         let allValidTags = await Set(appState.itemManager.itemCache.managedItems.map(\.tag))
 
         await MainActor.run { [newImages, allValidTags] in
+            let beforeCount = images.count
             // Remove images for items that no longer exist in the item cache
             images = images.filter { allValidTags.contains($0.key) }
             // Merge in the new images
             images.merge(newImages) { _, new in new }
+            let afterCount = images.count
+
+            if afterCount > 100 {
+                logger.info("Image cache size: \(afterCount) images (removed \(beforeCount - self.images.count) stale images)")
+            }
         }
     }
 
@@ -334,6 +340,13 @@ final class MenuBarItemImageCache: ObservableObject {
         }
         let tags = Set(appState.itemManager.itemCache[section].map(\.tag))
         images = images.filter { !tags.contains($0.key) }
+    }
+
+    deinit {
+        // Clean up all cached images and cancellables
+        logger.info("Image cache deinit: cleaning up \(self.images.count) cached images")
+        images.removeAll()
+        cancellables.removeAll()
     }
 
     // MARK: Cache Failed

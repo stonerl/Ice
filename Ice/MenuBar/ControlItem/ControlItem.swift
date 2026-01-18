@@ -221,6 +221,7 @@ final class ControlItem {
         $window.removeNil()
             .flatMap { $0.publisher(for: \.frame) }
             .removeDuplicates()
+            .debounce(for: 0.05, scheduler: DispatchQueue.main)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] frame in
                 self?.frame = frame
@@ -229,6 +230,7 @@ final class ControlItem {
 
         $window.removeNil()
             .flatMap { $0.publisher(for: \.screen) }
+            .debounce(for: 0.05, scheduler: DispatchQueue.main)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] screen in
                 self?.screen = screen
@@ -239,6 +241,7 @@ final class ControlItem {
             .flatMap { $0.publisher(for: \.frame) }
             .combineLatest($frame.removeNil())
             .removeDuplicates()
+            .debounce(for: 0.05, scheduler: DispatchQueue.main)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] screenFrame, frame in
                 guard let self else {
