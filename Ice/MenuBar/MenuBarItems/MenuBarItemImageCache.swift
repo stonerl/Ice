@@ -43,8 +43,14 @@ final class MenuBarItemImageCache: ObservableObject {
     /// The cached item images, keyed by their corresponding tags.
     @Published private(set) var images = [MenuBarItemTag: CapturedImage]()
 
+    /// Maximum number of images to cache to prevent memory growth
+    private static let maxCacheSize = 50
+
+    /// LRU tracking for cache entries
+    private var accessOrder: [MenuBarItemTag] = []
+
     /// Logger for the menu bar item image cache.
-    private let logger = Logger(category: "MenuBarItemImageCache")
+    private let logger = Logger(subsystem: "com.jordanbaird.Ice", category: "MenuBarItemImageCache")
 
     /// Queue to run cache operations.
     private let queue = DispatchQueue(label: "MenuBarItemImageCache", qos: .background)
@@ -273,10 +279,24 @@ final class MenuBarItemImageCache: ObservableObject {
             images = images.filter { allValidTags.contains($0.key) }
             // Merge in the new images
             images.merge(newImages) { _, new in new }
-            let afterCount = images.count
 
-            if afterCount > 100 {
-                logger.info("Image cache size: \(afterCount) images (removed \(beforeCount - self.images.count) stale images)")
+            // Enforce cache size limit - remove oldest entries if needed
+            if images.count > Self.maxCacheSize {
+                let excessCount = images.count - Self.maxCacheSize
+                let sortedEntries = images.sorted { lhs, rhs in
+                    // Sort by some consistent criteria - using tag string for now
+                    lhs.key.description < rhs.key.description
+                }
+                let tagsToRemove = Array(sortedEntries.prefix(excessCount).map(\.key))
+                for tag in tagsToRemove {
+                    images.removeValue(forKey: tag)
+                }
+                logger.info("Cache eviction: removed \(excessCount) images to maintain size limit")
+            }
+
+            let afterCount = images.count
+            if afterCount > 50 {
+                logger.info("Image cache size: \(afterCount) images (removed \(beforeCount - afterCount) stale/old images)")
             }
         }
     }

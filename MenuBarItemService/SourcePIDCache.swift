@@ -171,8 +171,18 @@ final class SourcePIDCache {
         Logger.default.debug("Received new running applications")
 
         let windowIDs = Bridging.getMenuBarWindowList(option: .itemsOnly)
+        let currentAppPids = Set(runningApps.map(\.processIdentifier))
 
         state.withLock { state in
+            // Clean up entries for terminated apps to prevent memory leaks
+            let oldAppPids = Set(state.apps.map(\.processIdentifier))
+            let terminatedPids = oldAppPids.subtracting(currentAppPids)
+            
+            // Remove PID mappings for terminated apps
+            for terminatedPid in terminatedPids {
+                state.pids = state.pids.filter { $0.value != terminatedPid }
+            }
+            
             // Convert the cached state to dictionaries keyed by pid to
             // allow for efficient repeated access.
             let appMappings = state.apps.reduce(into: [:]) { result, app in
@@ -200,6 +210,11 @@ final class SourcePIDCache {
                 if let pids = pidMappings[pid] {
                     result.pids.merge(pids) { (_, new) in new }
                 }
+            }
+            
+            // Log cleanup activity
+            if !terminatedPids.isEmpty {
+                Logger.default.info("Cleaned up PID cache entries for terminated processes: \(terminatedPids)")
             }
         }
     }

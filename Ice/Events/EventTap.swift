@@ -9,6 +9,35 @@ import OSLog
 /// An object that receives events from a defined point in
 /// the event stream.
 final class EventTap {
+    /// Pool to limit concurrent EventTaps and prevent Mach port leaks
+    private static var activeTaps: Set<ObjectIdentifier> = []
+    private static let maxConcurrentTaps = 10
+    private static let tapQueue = DispatchQueue(label: "EventTap.pool", attributes: .concurrent)
+
+    /// Request access to create a new tap
+    private static func requestTapCreation() -> Bool {
+        return tapQueue.sync(flags: .barrier) {
+            if activeTaps.count < maxConcurrentTaps {
+                return true
+            }
+            return false
+        }
+    }
+
+    /// Register a new tap
+    private static func registerTap(_ tap: EventTap) {
+        _ = tapQueue.sync(flags: .barrier) {
+            activeTaps.insert(ObjectIdentifier(tap))
+        }
+    }
+
+    /// Unregister a tap
+    private static func unregisterTap(_ tap: EventTap) {
+        _ = tapQueue.sync(flags: .barrier) {
+            activeTaps.remove(ObjectIdentifier(tap))
+        }
+    }
+
     /// Constants that specify the possible insertion points
     /// for event taps.
     enum Location {
@@ -40,7 +69,7 @@ final class EventTap {
     }
 
     /// Shared logger for event taps.
-    private static let logger = Logger(category: "EventTap")
+    private static let logger = Logger(subsystem: "com.jordanbaird.Ice", category: "EventTap")
 
     /// Shared callback for all event taps.
     private static let sharedCallback: CGEventTapCallBack = { _, type, event, refcon in
@@ -120,6 +149,12 @@ final class EventTap {
         self.callback = callback
         self.runLoop = CFRunLoopGetMain()
 
+        // Check if we can create a new tap to prevent Mach port leaks
+        guard Self.requestTapCreation() else {
+            EventTap.logger.warning("Too many active EventTaps, rejecting creation of \(label)")
+            return
+        }
+
         // Log EventTap creation for debugging port growth
         print("EventTap init: creating Mach port for location: \(location), types: \(types.count)")
         guard
@@ -132,9 +167,12 @@ final class EventTap {
             ),
             let source = CFMachPortCreateRunLoopSource(nil, machPort, 0)
         else {
-            EventTap.logger.error(#"Error creating event tap "\#(label, privacy: .public)""#)
+            EventTap.logger.error("Error creating event tap \"\(label)\"")
             return
         }
+
+        // Register this tap
+        Self.registerTap(self)
 
         self.machPort = machPort
         self.source = source
@@ -185,6 +223,10 @@ final class EventTap {
     deinit {
         // Log EventTap cleanup for debugging port growth
         print("EventTap deinit: cleaning up Mach port")
+
+        // Unregister this tap
+        Self.unregisterTap(self)
+
         if let source {
             CFRunLoopRemoveSource(runLoop, source, .commonModes)
         }

@@ -52,6 +52,9 @@ final class AppState: ObservableObject {
     /// Storage for internal observers.
     private var cancellables = Set<AnyCancellable>()
 
+    /// Track open windows to prevent duplicates
+    private var openWindows = Set<IceWindowIdentifier>()
+
     /// Logger for the app state.
     private let logger = Logger(category: "AppState")
 
@@ -74,6 +77,59 @@ final class AppState: ObservableObject {
         userNotificationManager.performSetup(with: self)
 
         configureCancellables()
+
+        // Start memory monitoring
+        startMemoryMonitoring()
+    }
+
+    /// Starts periodic memory monitoring to track potential leaks
+    private func startMemoryMonitoring() {
+        Task {
+            while !Task.isCancelled {
+                let memoryInfo = getMemoryInfo()
+                if memoryInfo.used > 500 * 1024 * 1024 { // 500MB threshold
+                    logger.warning("High memory usage detected: \(memoryInfo.used / 1024 / 1024)MB")
+
+                    // Log component sizes for debugging
+                    await MainActor.run {
+                        let imageCount = imageCache.images.count
+                        let windowCount = openWindows.count
+
+                        if imageCount > 20 {
+                            logger.warning("Large image cache: \(imageCount) items")
+                        }
+                        if windowCount > 5 {
+                            logger.warning("Many open windows: \(windowCount)")
+                        }
+                    }
+                }
+
+                try? await Task.sleep(for: .seconds(300)) // Check every 5 minutes
+            }
+        }
+    }
+
+    /// Gets current memory usage information
+    private func getMemoryInfo() -> (used: Int64, available: Int64) {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
+
+        let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+                task_info(
+                    mach_task_self_,
+                    task_flavor_t(MACH_TASK_BASIC_INFO),
+                    $0,
+                    &count
+                )
+            }
+        }
+
+        if kerr == KERN_SUCCESS {
+            return (used: Int64(info.resident_size), available: 0)
+        } else {
+            return (used: 0, available: 0)
+        }
     }
 
     /// Performs app state setup.
@@ -231,7 +287,16 @@ final class AppState: ObservableObject {
     /// Opens the window with the given identifier.
     func openWindow(_ id: IceWindowIdentifier) {
         // Async prevents conflicts with SwiftUI.
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            // Check if window is already open to prevent recreation
+            if self.openWindows.contains(id) {
+                self.logger.debug("Window \(id, privacy: .public) already open, skipping duplicate open")
+                return
+            }
+
+            self.openWindows.insert(id)
             self.logger.debug("Opening window with id: \(id, privacy: .public)")
             EnvironmentValues().openWindow(id: id)
         }
@@ -240,7 +305,9 @@ final class AppState: ObservableObject {
     /// Dismisses the window with the given identifier.
     func dismissWindow(_ id: IceWindowIdentifier) {
         // Async prevents conflicts with SwiftUI.
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.openWindows.remove(id)
             self.logger.debug("Dismissing window with id: \(id, privacy: .public)")
             EnvironmentValues().dismissWindow(id: id)
         }
