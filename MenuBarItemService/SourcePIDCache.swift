@@ -163,12 +163,29 @@ final class SourcePIDCache {
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     /// Observer for running applications.
-    private lazy var cancellable = NSWorkspace.shared.publisher(for: \.runningApplications).sink { [weak self] runningApps in
-        guard let self else {
-            return
-        }
+    private lazy var cancellable: AnyCancellable = {
+        let runningAppsPublisher = NSWorkspace.shared.publisher(for: \.runningApplications)
+            .map { _ in () }
 
-        Logger.default.debug("Received new running applications")
+        let timerPublisher = Timer.publish(every: 300, on: .main, in: .default)
+            .autoconnect()
+            .map { _ in () }
+
+        return Publishers.Merge(runningAppsPublisher, timerPublisher)
+            .sink { [weak self] in
+                self?.performCleanup()
+            }
+    }()
+
+    /// Creates the shared cache.
+    private init() {
+        Bridging.setProcessUnresponsiveTimeout(3)
+    }
+
+    /// Performs cleanup of the cache state.
+    private func performCleanup() {
+        let runningApps = NSWorkspace.shared.runningApplications
+        Logger.default.debug("Performing PID cache cleanup")
 
         let windowIDs = Bridging.getMenuBarWindowList(option: .itemsOnly)
         let currentAppPids = Set(runningApps.map(\.processIdentifier))
@@ -217,11 +234,6 @@ final class SourcePIDCache {
                 Logger.default.info("Cleaned up PID cache entries for terminated processes: \(terminatedPids)")
             }
         }
-    }
-
-    /// Creates the shared cache.
-    private init() {
-        Bridging.setProcessUnresponsiveTimeout(3)
     }
 
     /// Starts the observers for the cache.

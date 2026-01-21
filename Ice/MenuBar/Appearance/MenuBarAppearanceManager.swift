@@ -122,13 +122,15 @@ final class MenuBarAppearanceManager: ObservableObject {
 
     /// Configures the manager's overlay panels, if required by the given configuration.
     private func configureOverlayPanels(with configuration: MenuBarAppearanceConfigurationV2) {
+        // Close existing panels to prevent memory leaks and duplicate windows
+        while let panel = overlayPanels.popFirst() {
+            panel.close()
+        }
+
         guard
             let appState,
             needsOverlayPanels(for: configuration)
         else {
-            while let panel = overlayPanels.popFirst() {
-                panel.close()
-            }
             return
         }
 
