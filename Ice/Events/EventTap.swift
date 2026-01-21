@@ -178,6 +178,8 @@ final class EventTap {
         self.source = source
     }
 
+    private var isInvalidated = false
+
     /// Creates a new event tap for the specified event type.
     ///
     /// If the tap is an active filter, the callback can return
@@ -223,16 +225,24 @@ final class EventTap {
     deinit {
         // Log EventTap cleanup for debugging port growth
         print("EventTap deinit: cleaning up Mach port")
+        invalidate()
+    }
 
-        // Unregister this tap
+    /// Invalidates the event tap and releases its resources.
+    func invalidate() {
+        guard !isInvalidated else {
+            return
+        }
+        isInvalidated = true
         Self.unregisterTap(self)
-
         if let source {
             CFRunLoopRemoveSource(runLoop, source, .commonModes)
+            self.source = nil
         }
         if let machPort {
             CGEvent.tapEnable(tap: machPort, enable: false)
             CFMachPortInvalidate(machPort)
+            self.machPort = nil
         }
     }
 

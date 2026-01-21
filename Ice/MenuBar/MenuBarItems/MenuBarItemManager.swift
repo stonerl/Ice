@@ -613,6 +613,12 @@ extension MenuBarItemManager {
         var count = count
         var eventTaps = [EventTap]()
 
+        defer {
+            for tap in eventTaps {
+                tap.invalidate()
+            }
+        }
+
         let timeoutTask = Task(timeout: timeout * count) {
             try await withCheckedThrowingContinuation { continuation in
                 // Listen for the following events at the first location
@@ -731,6 +737,12 @@ extension MenuBarItemManager {
 
         var count = count
         var eventTaps = [EventTap]()
+
+        defer {
+            for tap in eventTaps {
+                tap.invalidate()
+            }
+        }
 
         let timeoutTask = Task(timeout: timeout * count) {
             try await withCheckedThrowingContinuation { continuation in
