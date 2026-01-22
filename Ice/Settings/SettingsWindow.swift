@@ -18,6 +18,12 @@ struct SettingsWindow: Scene {
                 .onWindowChange { window in
                     model.observeWindowToolbar(window)
                 }
+                .onAppear {
+                    Task { @MainActor in
+                        appState.imageCache.performCacheCleanup()
+                        appState.imageCache.logCacheStatus("Settings opened")
+                    }
+                }
                 .frame(minWidth: 825, maxWidth: 1150, minHeight: 500, maxHeight: 750)
         }
         .commandsRemoved()

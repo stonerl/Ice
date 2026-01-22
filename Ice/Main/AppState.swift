@@ -230,6 +230,10 @@ final class AppState: ObservableObject {
             }
             Task {
                 await self.imageCache.updateCacheWithoutChecks(sections: MenuBarSection.Name.allCases)
+                // Log cache status periodically (only if cache is getting full)
+                if self.imageCache.cacheSize > 15 {
+                    self.imageCache.logCacheStatus("Periodic update")
+                }
             }
         }
         .store(in: &c)

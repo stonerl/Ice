@@ -233,6 +233,87 @@ final class MenuBarItemImageCache: ObservableObject {
         return captureResult.images
     }
 
+    // MARK: Cache Access
+
+    /// Updates the access order for a given tag to mark it as most recently used.
+    private func updateAccessOrder(for tag: MenuBarItemTag) {
+        accessOrder.removeAll { $0 == tag }
+        accessOrder.append(tag)
+    }
+
+    /// Gets an image from the cache and updates its access order.
+    func image(for tag: MenuBarItemTag) -> CapturedImage? {
+        guard let image = images[tag] else {
+            return nil
+        }
+        updateAccessOrder(for: tag)
+        return image
+    }
+
+    /// Returns the current cache size for monitoring purposes.
+    var cacheSize: Int {
+        images.count
+    }
+
+    /// Returns the current LRU order count for debugging.
+    var accessOrderCount: Int {
+        accessOrder.count
+    }
+
+    /// Validates cache entries and removes items with invalid window IDs.
+    /// Returns the number of items removed during cleanup.
+    @MainActor
+    private func validateAndCleanupInvalidEntries() -> Int {
+        guard let appState else { return 0 }
+
+        var removedCount = 0
+        let allValidTags = Set(appState.itemManager.itemCache.managedItems.map(\.tag))
+
+        // Remove cache entries for items that don't exist in the item cache
+        // or have invalid/missing window information
+        let invalidTags = images.keys.filter { tag in
+            !allValidTags.contains(tag)
+        }
+
+        for invalidTag in invalidTags {
+            images.removeValue(forKey: invalidTag)
+            accessOrder.removeAll { $0 == invalidTag }
+            removedCount += 1
+        }
+
+        if removedCount > 0 {
+            logger.info("Cache cleanup: removed \(removedCount) invalid entries with missing window information")
+        }
+
+        return removedCount
+    }
+
+    /// Manually triggers cleanup of invalid cache entries.
+    /// This can be called when you suspect memory issues with orphaned entries.
+    @MainActor
+    func performCacheCleanup() {
+        let removedCount = validateAndCleanupInvalidEntries()
+        logger.info("Manual cache cleanup completed: removed \(removedCount) invalid entries")
+    }
+
+    /// Logs detailed cache information for debugging memory issues.
+    /// This method is NOT called automatically - you must call it explicitly.
+    func logCacheStatus(_ context: String = "Manual check") {
+        let imageSize = images.count
+        let lruSize = accessOrder.count
+        let maxSize = Self.maxCacheSize
+        let usagePercent = (imageSize * 100) / maxSize
+
+        logger.info("""
+        === Image Cache Status: \(context) ===
+        Cache size: \(imageSize)/\(maxSize) (\(usagePercent)% full)
+        LRU order count: \(lruSize)
+        Memory impact: ~\(imageSize * 100)KB (estimated)
+        LRU order preview: \(self.accessOrder.prefix(5).map(\.description).joined(separator: ", "))
+        ======================================
+        """)
+    }
+
     // MARK: Update Cache
 
     /// Updates the cache for the given sections, without checking whether
@@ -275,28 +356,59 @@ final class MenuBarItemImageCache: ObservableObject {
 
         await MainActor.run { [newImages, allValidTags] in
             let beforeCount = images.count
+
             // Remove images for items that no longer exist in the item cache
             images = images.filter { allValidTags.contains($0.key) }
+
+            // Additional cleanup: Remove entries with invalid window information
+            _ = validateAndCleanupInvalidEntries()
+
+            // Update access order for existing items that are being refreshed
+            for tag in newImages.keys {
+                if images.contains(where: { $0.key == tag }) {
+                    // Move to end (most recently used)
+                    accessOrder.removeAll { $0 == tag }
+                    accessOrder.append(tag)
+                } else {
+                    // New entry - add to access order
+                    accessOrder.append(tag)
+                }
+            }
+
             // Merge in the new images
             images.merge(newImages) { _, new in new }
 
-            // Enforce cache size limit - remove oldest entries if needed
+            // Enforce cache size limit using proper LRU eviction
             if images.count > Self.maxCacheSize {
                 let excessCount = images.count - Self.maxCacheSize
-                let sortedEntries = images.sorted { lhs, rhs in
-                    // Sort by some consistent criteria - using tag string for now
-                    lhs.key.description < rhs.key.description
-                }
-                let tagsToRemove = Array(sortedEntries.prefix(excessCount).map(\.key))
+
+                // Use accessOrder to determine least recently used items
+                let tagsToRemove = Array(accessOrder.prefix(excessCount))
+
+                // Remove from cache and access order
                 for tag in tagsToRemove {
                     images.removeValue(forKey: tag)
+                    accessOrder.removeAll { $0 == tag }
                 }
-                logger.info("Cache eviction: removed \(excessCount) images to maintain size limit")
+
+                logger.info("LRU cache eviction: removed \(excessCount) least recently used images")
             }
 
+            // Clean up access order for any remaining inconsistencies
+            accessOrder = accessOrder.filter { tag in images.contains(where: { $0.key == tag }) }
+
             let afterCount = images.count
-            if afterCount > 50 {
-                logger.info("Image cache size: \(afterCount) images (removed \(beforeCount - afterCount) stale/old images)")
+            let finalAccessOrderCount = accessOrder.count
+            let totalRemoved = beforeCount - afterCount
+
+            // Log cache status for monitoring (verbose only when needed)
+            if afterCount > 30 || totalRemoved > 0 {
+                logger.info("Image cache: \(afterCount) images, LRU order: \(finalAccessOrderCount) entries (removed \(totalRemoved) stale+invalid images)")
+            }
+
+            // Warning if cache and access order are out of sync
+            if afterCount != finalAccessOrderCount {
+                logger.warning("Cache inconsistency: \(afterCount) cached images vs \(finalAccessOrderCount) LRU entries")
             }
         }
     }

@@ -138,6 +138,7 @@ final class MenuBarSearchPanel: NSPanel {
 
         Task {
             await appState.imageCache.updateCache()
+            appState.imageCache.logCacheStatus("Search panel opened")
 
             let hostingView = MenuBarSearchHostingView(
                 appState: appState,
