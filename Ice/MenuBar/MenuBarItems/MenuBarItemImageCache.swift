@@ -49,6 +49,19 @@ final class MenuBarItemImageCache: ObservableObject {
     /// LRU tracking for cache entries
     private var accessOrder: [MenuBarItemTag] = []
 
+    /// Failed capture tracking to skip repeatedly failing items
+    private struct FailedCapture: Hashable {
+        let tag: MenuBarItemTag
+        let failureCount: Int
+        let lastFailureTime: Date
+    }
+
+    private var failedCaptures: [MenuBarItemTag: FailedCapture] = [:]
+
+    /// Configuration for failed capture handling
+    private static let maxFailuresBeforeBlacklist = 3
+    private static let blacklistCooldownSeconds: TimeInterval = 300 // 5 minutes
+
     /// Logger for the menu bar item image cache.
     private let logger = Logger(subsystem: "com.jordanbaird.Ice", category: "MenuBarItemImageCache")
 
@@ -80,8 +93,8 @@ final class MenuBarItemImageCache: ObservableObject {
 
         if let appState {
             Publishers.Merge3(
-                // Update every 3 seconds at minimum.
-                Timer.publish(every: 3, on: .main, in: .default).autoconnect().replace(with: ()),
+                // Update every 5 seconds at minimum (reduced from 3 for better performance).
+                Timer.publish(every: 5, on: .main, in: .default).autoconnect().replace(with: ()),
 
                 // Update when the active space or screen parameters change.
                 Publishers.Merge(
@@ -151,6 +164,13 @@ final class MenuBarItemImageCache: ObservableObject {
                 continue
             }
 
+            // Check if this item should be skipped due to repeated failures
+            if shouldSkipCapture(for: item) {
+                logger.debug("Skipping composite capture for repeatedly failing item: \(item.logString)")
+                result.excluded.append(item)
+                continue
+            }
+
             let cropRect = CGRect(
                 x: (bounds.origin.x - boundsUnion.origin.x) * scale,
                 y: (bounds.origin.y - boundsUnion.origin.y) * scale,
@@ -162,10 +182,14 @@ final class MenuBarItemImageCache: ObservableObject {
                 let image = compositeImage.cropping(to: cropRect),
                 !image.isTransparent()
             else {
+                // Record failure
+                recordCaptureFailure(for: item)
                 result.excluded.append(item)
                 continue
             }
 
+            // Record success
+            recordCaptureSuccess(for: item)
             result.images[item.tag] = CapturedImage(cgImage: image, scale: scale)
         }
 
@@ -178,13 +202,25 @@ final class MenuBarItemImageCache: ObservableObject {
         var result = CaptureResult()
 
         for item in items {
+            // Check if this item should be skipped due to repeated failures
+            if shouldSkipCapture(for: item) {
+                logger.debug("Skipping capture for repeatedly failing item: \(item.logString)")
+                result.excluded.append(item)
+                continue
+            }
+
             guard
                 let image = ScreenCapture.captureWindow(with: item.windowID, option: captureOption),
                 !image.isTransparent()
             else {
+                // Record failure and exclude
+                recordCaptureFailure(for: item)
                 result.excluded.append(item)
                 continue
             }
+
+            // Record success and cache
+            recordCaptureSuccess(for: item)
             result.images[item.tag] = CapturedImage(cgImage: image, scale: scale)
         }
 
@@ -231,6 +267,65 @@ final class MenuBarItemImageCache: ObservableObject {
             logger.error("Some items failed capture: \(captureResult.excluded, privacy: .public)")
         }
         return captureResult.images
+    }
+
+    // MARK: Failed Capture Management
+
+    /// Checks if an item should be skipped due to repeated capture failures.
+    private func shouldSkipCapture(for item: MenuBarItem) -> Bool {
+        guard let failed = failedCaptures[item.tag] else {
+            return false
+        }
+
+        // If failed too many times and within cooldown period, skip
+        if failed.failureCount >= Self.maxFailuresBeforeBlacklist {
+            let timeSinceFailure = Date().timeIntervalSince(failed.lastFailureTime)
+            if timeSinceFailure < Self.blacklistCooldownSeconds {
+                return true
+            } else {
+                // Cooldown expired, reset failure count
+                failedCaptures.removeValue(forKey: item.tag)
+                return false
+            }
+        }
+
+        return false
+    }
+
+    /// Records a capture failure for an item.
+    private func recordCaptureFailure(for item: MenuBarItem) {
+        let now = Date()
+        let existing = failedCaptures[item.tag]
+
+        if let existing = existing {
+            failedCaptures[item.tag] = FailedCapture(
+                tag: item.tag,
+                failureCount: existing.failureCount + 1,
+                lastFailureTime: now
+            )
+        } else {
+            failedCaptures[item.tag] = FailedCapture(
+                tag: item.tag,
+                failureCount: 1,
+                lastFailureTime: now
+            )
+        }
+
+        // Clean up old failed entries
+        cleanupOldFailedEntries()
+    }
+
+    /// Records a successful capture for an item (resets failure count).
+    private func recordCaptureSuccess(for item: MenuBarItem) {
+        failedCaptures.removeValue(forKey: item.tag)
+    }
+
+    /// Cleans up old failed capture entries that have expired.
+    private func cleanupOldFailedEntries() {
+        let cutoff = Date().addingTimeInterval(-Self.blacklistCooldownSeconds)
+        failedCaptures = failedCaptures.filter { _, failed in
+            failed.lastFailureTime > cutoff
+        }
     }
 
     // MARK: Cache Access
@@ -293,7 +388,9 @@ final class MenuBarItemImageCache: ObservableObject {
     @MainActor
     func performCacheCleanup() {
         let removedCount = validateAndCleanupInvalidEntries()
-        logger.info("Manual cache cleanup completed: removed \(removedCount) invalid entries")
+        let failedCleared = failedCaptures.count
+        failedCaptures.removeAll()
+        logger.info("Manual cache cleanup completed: removed \(removedCount) invalid entries, cleared \(failedCleared) failed captures")
     }
 
     /// Logs detailed cache information for debugging memory issues.
@@ -303,11 +400,14 @@ final class MenuBarItemImageCache: ObservableObject {
         let lruSize = accessOrder.count
         let maxSize = Self.maxCacheSize
         let usagePercent = (imageSize * 100) / maxSize
+        let failedCount = failedCaptures.count
+        let blacklistedCount = failedCaptures.values.filter { $0.failureCount >= Self.maxFailuresBeforeBlacklist }.count
 
         logger.info("""
         === Image Cache Status: \(context) ===
         Cache size: \(imageSize)/\(maxSize) (\(usagePercent)% full)
         LRU order count: \(lruSize)
+        Failed captures: \(failedCount) (blacklisted: \(blacklistedCount))
         Memory impact: ~\(imageSize * 100)KB (estimated)
         LRU order preview: \(self.accessOrder.prefix(5).map(\.description).joined(separator: ", "))
         ======================================
@@ -475,9 +575,11 @@ final class MenuBarItemImageCache: ObservableObject {
     }
 
     deinit {
-        // Clean up all cached images and cancellables
-        logger.info("Image cache deinit: cleaning up \(self.images.count) cached images")
+        // Clean up all cached images, failed captures, and cancellables
+        logger.info("Image cache deinit: cleaning up \(self.images.count) cached images, \(self.failedCaptures.count) failed entries")
         images.removeAll()
+        accessOrder.removeAll()
+        failedCaptures.removeAll()
         cancellables.removeAll()
     }
 

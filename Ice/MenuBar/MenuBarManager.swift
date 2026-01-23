@@ -139,7 +139,7 @@ final class MenuBarManager: ObservableObject {
         $settingsWindow
             .removeNil()
             .flatMap { $0.publisher(for: \.isVisible) }
-            .discardMerge(Timer.publish(every: 5, on: .main, in: .default).autoconnect())
+            .discardMerge(Timer.publish(every: 10, on: .main, in: .default).autoconnect())
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in
                 self?.updateAverageColorInfo()
