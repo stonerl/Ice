@@ -56,7 +56,7 @@ final class AppState: ObservableObject {
     private var openWindows = Set<IceWindowIdentifier>()
 
     /// Logger for the app state.
-    private let logger = Logger(category: "AppState")
+    let logger = Logger(category: "AppState")
 
     /// Async setup actions, run once on first access.
     private lazy var setupTask = Task {
@@ -106,6 +106,17 @@ final class AppState: ObservableObject {
 
                 try? await Task.sleep(for: .seconds(300)) // Check every 5 minutes
             }
+        }
+    }
+
+    /// Dismisses the window with the given identifier.
+    func dismissWindow(_ id: IceWindowIdentifier) {
+        // Async prevents conflicts with SwiftUI.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.openWindows.remove(id)
+            self.logger.debug("Dismissing window with id: \(id, privacy: .public)")
+            EnvironmentValues().dismissWindow(id: id)
         }
     }
 
@@ -206,7 +217,15 @@ final class AppState: ObservableObject {
             .throttle(for: 0.1, scheduler: DispatchQueue.main, latest: true)
             .removeDuplicates()
             .sink { [weak self] isPresented in
-                self?.navigationState.isSettingsPresented = isPresented
+                guard let self else { return }
+                self.navigationState.isSettingsPresented = isPresented
+
+                // Update openWindows tracking based on actual window visibility
+                if isPresented {
+                    self.openWindows.insert(.settings)
+                } else {
+                    self.openWindows.remove(.settings)
+                }
             }
             .store(in: &c)
 
@@ -296,24 +315,20 @@ final class AppState: ObservableObject {
 
             // Check if window is already open to prevent recreation
             if self.openWindows.contains(id) {
-                self.logger.debug("Window \(id, privacy: .public) already open, skipping duplicate open")
+                self.logger.debug("Window \(id, privacy: .public) already open, activating existing window")
+                // If window already exists, just activate it
+                self.activate(withPolicy: .regular)
                 return
             }
 
             self.openWindows.insert(id)
             self.logger.debug("Opening window with id: \(id, privacy: .public)")
             EnvironmentValues().openWindow(id: id)
-        }
-    }
 
-    /// Dismisses the window with the given identifier.
-    func dismissWindow(_ id: IceWindowIdentifier) {
-        // Async prevents conflicts with SwiftUI.
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.openWindows.remove(id)
-            self.logger.debug("Dismissing window with id: \(id, privacy: .public)")
-            EnvironmentValues().dismissWindow(id: id)
+            // Ensure activation after window opens
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.activate(withPolicy: .regular)
+            }
         }
     }
 
@@ -323,15 +338,18 @@ final class AppState: ObservableObject {
             NSApp.setActivationPolicy(policy)
         }
 
-        // NSApplication.activate(ignoringOtherApps:) is deprecated, with
-        // no suitable alternative for explicit activation, so we activate
-        // through NSRunningApplication.current for now.
-        guard let frontmost = NSWorkspace.shared.frontmostApplication else {
-            NSRunningApplication.current.activate()
-            return
-        }
+        // Force activation and bring to front
+        NSApp.activate(ignoringOtherApps: true)
 
-        NSRunningApplication.current.activate(from: frontmost)
+        // Also try through NSRunningApplication as fallback
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            guard let frontmost = NSWorkspace.shared.frontmostApplication else {
+                NSRunningApplication.current.activate()
+                return
+            }
+
+            NSRunningApplication.current.activate(from: frontmost)
+        }
     }
 
     /// Deactivates the app and sets its activation policy.

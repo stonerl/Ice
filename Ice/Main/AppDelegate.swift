@@ -52,12 +52,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        Logger.default.debug("Handling reopen")
-        openSettingsWindow()
-        return true
-    }
-
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         if
             sender.isActive,
@@ -78,6 +72,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Opens the settings window and activates the app.
     @objc func openSettingsWindow() {
+        // Always allow opening settings window from menu item clicks
+        // This ensures clicking dock icon or menu bar item works correctly
+        appState.logger.debug("Opening settings window from menu item/dock click")
+
         // Delay makes this more reliable for some reason.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [appState] in
             appState.activate(withPolicy: .regular)
