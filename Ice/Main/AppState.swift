@@ -87,8 +87,9 @@ final class AppState: ObservableObject {
         Task {
             while !Task.isCancelled {
                 let memoryInfo = getMemoryInfo()
-                if memoryInfo.used > 500 * 1024 * 1024 { // 500MB threshold
-                    logger.warning("High memory usage detected: \(memoryInfo.used / 1024 / 1024)MB")
+                if memoryInfo.used > 100 * 1024 * 1024 { // 100MB threshold
+                    let timestamp = ISO8601DateFormatter().string(from: Date())
+                    logger.warning("High memory usage detected at \(timestamp): \(memoryInfo.used / 1024 / 1024)MB")
 
                     // Log component sizes for debugging
                     await MainActor.run {
