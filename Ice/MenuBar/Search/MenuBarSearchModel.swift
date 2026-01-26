@@ -37,6 +37,7 @@ final class MenuBarSearchModel: ObservableObject {
         .compactMap { screen, isVisible in
             isVisible ? screen : nil
         }
+        .debounce(for: 0.1, scheduler: DispatchQueue.main) // Debounce to avoid rapid updates
         .sink { [weak self] screen in
             self?.updateAverageColorInfo(for: screen)
         }

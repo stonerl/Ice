@@ -87,9 +87,10 @@ final class AppState: ObservableObject {
     /// Starts periodic memory monitoring to track all memory usage
     private func startMemoryMonitoring() {
         Task {
+            let formatter = ISO8601DateFormatter()
             while !Task.isCancelled {
                 let memoryUsage = getMemoryInfo()
-                let timestamp = ISO8601DateFormatter().string(from: Date())
+                let timestamp = formatter.string(from: Date())
 
                 // Always log memory usage, not just high usage
                 logger.info("Memory usage at \(timestamp): \(memoryUsage / 1024 / 1024)MB")
@@ -112,7 +113,7 @@ final class AppState: ObservableObject {
                     }
                 }
 
-                try? await Task.sleep(for: .seconds(300)) // Check every 5 minutes
+                try? await Task.sleep(for: .seconds(600)) // Check every 10 minutes
             }
         }
     }

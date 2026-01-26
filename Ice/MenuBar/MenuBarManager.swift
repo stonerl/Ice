@@ -139,7 +139,7 @@ final class MenuBarManager: ObservableObject {
         $settingsWindow
             .removeNil()
             .flatMap { $0.publisher(for: \.isVisible) }
-            .discardMerge(Timer.publish(every: 10, on: .main, in: .default).autoconnect())
+            .discardMerge(Timer.publish(every: 60, on: .main, in: .default).autoconnect())
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in
                 self?.updateAverageColorInfo()
@@ -225,6 +225,18 @@ final class MenuBarManager: ObservableObject {
     /// Updates the ``averageColorInfo`` property with the current average color
     /// of the menu bar.
     func updateAverageColorInfo() {
+        guard let appState else { return }
+
+        // Only update if we really need the color info
+        let isSettingsVisible = settingsWindow?.isVisible == true
+        let isIceBarVisible = appState.navigationState.isIceBarPresented
+        let isSearchVisible = appState.navigationState.isSearchPresented
+        let useIceBar = appState.settings.general.useIceBar
+
+        guard isSettingsVisible || isIceBarVisible || isSearchVisible || useIceBar else {
+            return
+        }
+
         guard
             let settingsWindow,
             settingsWindow.isVisible,
