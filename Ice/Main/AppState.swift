@@ -6,6 +6,8 @@
 import Combine
 import OSLog
 import SwiftUI
+import Darwin.Mach
+import CoreGraphics
 
 /// The model for app-wide state.
 @MainActor
@@ -82,26 +84,31 @@ final class AppState: ObservableObject {
         startMemoryMonitoring()
     }
 
-    /// Starts periodic memory monitoring to track potential leaks
+    /// Starts periodic memory monitoring to track all memory usage
     private func startMemoryMonitoring() {
         Task {
             while !Task.isCancelled {
-                let memoryInfo = getMemoryInfo()
-                if memoryInfo.used > 100 * 1024 * 1024 { // 100MB threshold
-                    let timestamp = ISO8601DateFormatter().string(from: Date())
-                    logger.warning("High memory usage detected at \(timestamp): \(memoryInfo.used / 1024 / 1024)MB")
+                let memoryUsage = getMemoryInfo()
+                let timestamp = ISO8601DateFormatter().string(from: Date())
 
-                    // Log component sizes for debugging
-                    await MainActor.run {
-                        let imageCount = imageCache.images.count
-                        let windowCount = openWindows.count
+                // Always log memory usage, not just high usage
+                logger.info("Memory usage at \(timestamp): \(memoryUsage / 1024 / 1024)MB")
 
-                        if imageCount > 20 {
-                            logger.warning("Large image cache: \(imageCount) items")
-                        }
-                        if windowCount > 5 {
-                            logger.warning("Many open windows: \(windowCount)")
-                        }
+                // Log warnings for specific conditions
+                if memoryUsage > 500 * 1024 * 1024 { // 500MB threshold
+                    logger.warning("High memory usage detected: \(memoryUsage / 1024 / 1024)MB")
+                }
+
+                // Log component sizes for debugging
+                await MainActor.run {
+                    let imageCount = imageCache.images.count
+                    let windowCount = openWindows.count
+
+                    if imageCount > 20 {
+                        logger.warning("Large image cache: \(imageCount) items")
+                    }
+                    if windowCount > 5 {
+                        logger.warning("Many open windows: \(windowCount)")
                     }
                 }
 
@@ -121,27 +128,19 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Gets current memory usage information
-    private func getMemoryInfo() -> (used: Int64, available: Int64) {
-        var info = mach_task_basic_info()
-        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
-
+    /// Gets the memory footprint of the task.
+    private func getMemoryInfo() -> Int64 {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size) / UInt32(MemoryLayout<integer_t>.size)
         let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
-                task_info(
-                    mach_task_self_,
-                    task_flavor_t(MACH_TASK_BASIC_INFO),
-                    $0,
-                    &count
-                )
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
             }
         }
-
-        if kerr == KERN_SUCCESS {
-            return (used: Int64(info.resident_size), available: 0)
-        } else {
-            return (used: 0, available: 0)
+        guard kerr == KERN_SUCCESS else {
+            return 0
         }
+        return Int64(info.phys_footprint)
     }
 
     /// Performs app state setup.
