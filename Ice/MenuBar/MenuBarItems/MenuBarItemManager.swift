@@ -1560,16 +1560,7 @@ extension MenuBarItemManager {
                 """
             )
             temporarilyShownItemContexts.append(contentsOf: failedContexts.reversed())
-
-            // Only try again if we haven't exceeded a global maximum of attempts
-            // to prevent infinite loops of failing rehide attempts
-            if failedContexts.allSatisfy({ $0.rehideAttempts < 10 }) {
-                runRehideTimer(for: 3)
-            } else {
-                logger.error("Giving up on rehiding items after too many failures")
-                // Clear them out to prevent memory growth
-                temporarilyShownItemContexts.removeAll()
-            }
+            runRehideTimer(for: 3)
         }
     }
 
