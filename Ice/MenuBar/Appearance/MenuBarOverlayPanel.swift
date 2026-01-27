@@ -77,6 +77,8 @@ final class MenuBarOverlayPanel: NSPanel {
     @Published private(set) var applicationMenuFrame: CGRect?
 
     /// The current desktop wallpaper, clipped to the bounds of the menu bar.
+    ///
+    /// The wallpaper is captured at nominal resolution (1x) to save memory.
     @Published private(set) var desktopWallpaper: CGImage?
 
     /// Storage for internal observers.
@@ -351,6 +353,13 @@ final class MenuBarOverlayPanel: NSPanel {
         with windows: [WindowInfo]
     ) {
         guard
+            let appState,
+            appState.appearanceManager.configuration.shapeKind != .noShape
+        else {
+            desktopWallpaper = nil
+            return
+        }
+        guard
             let wallpaperWindow = WindowInfo.wallpaperWindow(
                 from: windows,
                 for: display
@@ -364,7 +373,8 @@ final class MenuBarOverlayPanel: NSPanel {
         }
         let wallpaper = ScreenCapture.captureWindow(
             with: wallpaperWindow.windowID,
-            screenBounds: menuBarWindow.bounds
+            screenBounds: menuBarWindow.bounds,
+            option: .nominalResolution
         )
         if desktopWallpaper?.dataProvider?.data != wallpaper?.dataProvider?.data
         {
