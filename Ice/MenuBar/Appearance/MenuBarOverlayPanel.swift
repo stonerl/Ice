@@ -37,7 +37,11 @@ final class MenuBarOverlayPanel: NSPanel {
         ///   - flag: The update flag to set the task for.
         ///   - timeout: The timeout of the task.
         ///   - operation: The operation for the task to perform.
-        func setTask(for flag: UpdateFlag, timeout: Duration, operation: @escaping () async throws -> Void) {
+        func setTask(
+            for flag: UpdateFlag,
+            timeout: Duration,
+            operation: @escaping () async throws -> Void
+        ) {
             cancelTask(for: flag)
             tasks[flag] = Task.detached(timeout: timeout) {
                 try await operation()
@@ -93,7 +97,9 @@ final class MenuBarOverlayPanel: NSPanel {
         self.owningScreen = owningScreen
         super.init(
             contentRect: .zero,
-            styleMask: [.borderless, .fullSizeContentView, .nonactivatingPanel],
+            styleMask: [
+                .borderless, .fullSizeContentView, .nonactivatingPanel,
+            ],
             backing: .buffered,
             defer: false
         )
@@ -107,7 +113,9 @@ final class MenuBarOverlayPanel: NSPanel {
         self.isMovable = false
         self.ignoresMouseEvents = true
         self.isExcludedFromWindowsMenu = true
-        self.collectionBehavior = [.fullScreenNone, .ignoresCycle, .moveToActiveSpace]
+        self.collectionBehavior = [
+            .fullScreenNone, .ignoresCycle, .moveToActiveSpace,
+        ]
         self.contentView = MenuBarOverlayPanelContentView()
         configureCancellables()
     }
@@ -126,37 +134,63 @@ final class MenuBarOverlayPanel: NSPanel {
 
         // Update when light/dark mode changes.
         DistributedNotificationCenter.default()
-            .publisher(for: DistributedNotificationCenter.interfaceThemeChangedNotification)
+            .publisher(
+                for: DistributedNotificationCenter
+                    .interfaceThemeChangedNotification
+            )
             .debounce(for: 0.1, scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else {
                     return
                 }
-                updateTaskContext.setTask(for: .desktopWallpaper, timeout: .seconds(5)) {
-                    self.insertUpdateFlag(.desktopWallpaper)
+                updateTaskContext.setTask(
+                    for: .desktopWallpaper,
+                    timeout: .seconds(5)
+                ) { [weak self] in
+                    self?.insertUpdateFlag(.desktopWallpaper)
                 }
             }
             .store(in: &c)
 
         // Update application menu frame when the menu bar owning or frontmost app changes.
         Publishers.Merge(
-            NSWorkspace.shared.publisher(for: \.menuBarOwningApplication, options: .old)
-                .combineLatest(NSWorkspace.shared.publisher(for: \.menuBarOwningApplication, options: .new))
-                .compactMap { $0 == $1 ? nil : $0 },
-            NSWorkspace.shared.publisher(for: \.frontmostApplication, options: .old)
-                .combineLatest(NSWorkspace.shared.publisher(for: \.frontmostApplication, options: .new))
-                .compactMap { $0 == $1 ? nil : $0 }
+            NSWorkspace.shared.publisher(
+                for: \.menuBarOwningApplication,
+                options: .old
+            )
+            .combineLatest(
+                NSWorkspace.shared.publisher(
+                    for: \.menuBarOwningApplication,
+                    options: .new
+                )
+            )
+            .compactMap { $0 == $1 ? nil : $0 },
+            NSWorkspace.shared.publisher(
+                for: \.frontmostApplication,
+                options: .old
+            )
+            .combineLatest(
+                NSWorkspace.shared.publisher(
+                    for: \.frontmostApplication,
+                    options: .new
+                )
+            )
+            .compactMap { $0 == $1 ? nil : $0 }
         )
         .removeDuplicates()
         .sink { [weak self] _ in
             guard let self else {
                 return
             }
-            updateTaskContext.setTask(for: .applicationMenuFrame, timeout: .seconds(10)) {
-                for _ in 0 ..< 10 {
+            updateTaskContext.setTask(
+                for: .applicationMenuFrame,
+                timeout: .seconds(10)
+            ) { [weak self] in
+                for _ in 0..<10 {
                     try Task.checkCancellation()
-                    if
-                        let latestFrame = self.owningScreen.getApplicationMenuFrame(),
+                    guard let self else { return }
+                    if let latestFrame = self.owningScreen
+                        .getApplicationMenuFrame(),
                         latestFrame != self.applicationMenuFrame
                     {
                         self.insertUpdateFlag(.applicationMenuFrame)
@@ -168,7 +202,9 @@ final class MenuBarOverlayPanel: NSPanel {
             Task {
                 try? await Task.sleep(for: .milliseconds(100))
                 if self.owningScreen != NSScreen.main {
-                    self.updateTaskContext.cancelTask(for: .applicationMenuFrame)
+                    self.updateTaskContext.cancelTask(
+                        for: .applicationMenuFrame
+                    )
                 }
             }
         }
@@ -191,7 +227,7 @@ final class MenuBarOverlayPanel: NSPanel {
 
         // Continually update the desktop wallpaper. Ideally, we would set up an observer
         // for a wallpaper change notification, but macOS doesn't post one anymore.
-        Timer.publish(every: 5, on: .main, in: .default)
+        Timer.publish(every: 30, on: .main, in: .default)
             .autoconnect()
             .sink { [weak self] _ in
                 self?.insertUpdateFlag(.desktopWallpaper)
@@ -229,7 +265,11 @@ final class MenuBarOverlayPanel: NSPanel {
                 }
                 let windows = WindowInfo.createWindows(option: .onScreen)
                 if validate(for: .updates, with: windows) {
-                    performUpdates(for: flags, windows: windows, screen: owningScreen)
+                    performUpdates(
+                        for: flags,
+                        windows: windows,
+                        screen: owningScreen
+                    )
                 }
             }
             .store(in: &c)
@@ -252,25 +292,42 @@ final class MenuBarOverlayPanel: NSPanel {
 
     /// Performs validation for the given validation kind. Returns the panel's
     /// owning display if successful. Returns `nil` on failure.
-    private func validate(for kind: ValidationKind, with windows: [WindowInfo]) -> Bool {
-        lazy var actionMessage = switch kind {
-        case .showing: "Preventing overlay panel from showing."
-        case .updates: "Preventing overlay panel from updating."
-        }
+    private func validate(for kind: ValidationKind, with windows: [WindowInfo])
+        -> Bool
+    {
+        lazy var actionMessage =
+            switch kind {
+            case .showing: "Preventing overlay panel from showing."
+            case .updates: "Preventing overlay panel from updating."
+            }
         guard let appState else {
-            MenuBarOverlayPanel.logger.debug("No app state. \(actionMessage, privacy: .public)")
+            MenuBarOverlayPanel.logger.debug(
+                "No app state. \(actionMessage, privacy: .public)"
+            )
             return false
         }
-        guard !appState.menuBarManager.isMenuBarHiddenBySystemUserDefaults else {
-            MenuBarOverlayPanel.logger.debug("Menu bar is hidden by system. \(actionMessage, privacy: .public)")
+        guard !appState.menuBarManager.isMenuBarHiddenBySystemUserDefaults
+        else {
+            MenuBarOverlayPanel.logger.debug(
+                "Menu bar is hidden by system. \(actionMessage, privacy: .public)"
+            )
             return false
         }
         guard !appState.activeSpace.isFullscreen else {
-            MenuBarOverlayPanel.logger.debug("Active space is fullscreen. \(actionMessage, privacy: .public)")
+            MenuBarOverlayPanel.logger.debug(
+                "Active space is fullscreen. \(actionMessage, privacy: .public)"
+            )
             return false
         }
-        guard appState.menuBarManager.hasValidMenuBar(in: windows, for: owningScreen.displayID) else {
-            MenuBarOverlayPanel.logger.debug("No valid menu bar found. \(actionMessage, privacy: .public)")
+        guard
+            appState.menuBarManager.hasValidMenuBar(
+                in: windows,
+                for: owningScreen.displayID
+            )
+        else {
+            MenuBarOverlayPanel.logger.debug(
+                "No valid menu bar found. \(actionMessage, privacy: .public)"
+            )
             return false
         }
         return true
@@ -289,21 +346,38 @@ final class MenuBarOverlayPanel: NSPanel {
 
     /// Stores the area of the desktop wallpaper that is under the menu bar
     /// of the given display.
-    private func updateDesktopWallpaper(for display: CGDirectDisplayID, with windows: [WindowInfo]) {
+    private func updateDesktopWallpaper(
+        for display: CGDirectDisplayID,
+        with windows: [WindowInfo]
+    ) {
         guard
-            let wallpaperWindow = WindowInfo.wallpaperWindow(from: windows, for: display),
-            let menuBarWindow = WindowInfo.menuBarWindow(from: windows, for: display)
+            let wallpaperWindow = WindowInfo.wallpaperWindow(
+                from: windows,
+                for: display
+            ),
+            let menuBarWindow = WindowInfo.menuBarWindow(
+                from: windows,
+                for: display
+            )
         else {
             return
         }
-        let wallpaper = ScreenCapture.captureWindow(with: wallpaperWindow.windowID, screenBounds: menuBarWindow.bounds)
-        if desktopWallpaper?.dataProvider?.data != wallpaper?.dataProvider?.data {
+        let wallpaper = ScreenCapture.captureWindow(
+            with: wallpaperWindow.windowID,
+            screenBounds: menuBarWindow.bounds
+        )
+        if desktopWallpaper?.dataProvider?.data != wallpaper?.dataProvider?.data
+        {
             desktopWallpaper = wallpaper
         }
     }
 
     /// Updates the panel to prepare for display.
-    private func performUpdates(for flags: Set<UpdateFlag>, windows: [WindowInfo], screen: NSScreen) {
+    private func performUpdates(
+        for flags: Set<UpdateFlag>,
+        windows: [WindowInfo],
+        screen: NSScreen
+    ) {
         if flags.contains(.applicationMenuFrame) {
             updateApplicationMenuFrame(for: screen)
         }
@@ -319,7 +393,9 @@ final class MenuBarOverlayPanel: NSPanel {
         }
 
         guard appState.appearanceManager.overlayPanels.contains(self) else {
-            MenuBarOverlayPanel.logger.warning("Overlay panel \(self) not retained")
+            MenuBarOverlayPanel.logger.warning(
+                "Overlay panel \(self) not retained"
+            )
             return
         }
 
@@ -364,9 +440,11 @@ final class MenuBarOverlayPanel: NSPanel {
 // MARK: - Content View
 
 private final class MenuBarOverlayPanelContentView: NSView {
-    @Published private var fullConfiguration: MenuBarAppearanceConfigurationV2 = .defaultConfiguration
+    @Published private var fullConfiguration: MenuBarAppearanceConfigurationV2 =
+        .defaultConfiguration
 
-    @Published private var previewConfiguration: MenuBarAppearancePartialConfiguration?
+    @Published private var previewConfiguration:
+        MenuBarAppearancePartialConfiguration?
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -455,21 +533,47 @@ private final class MenuBarOverlayPanelContentView: NSView {
 
     /// Returns a path in the given rectangle, with the given end caps,
     /// and inset by the given amounts.
-    private func shapePath(in rect: CGRect, leadingEndCap: MenuBarEndCap, trailingEndCap: MenuBarEndCap, screen: NSScreen) -> NSBezierPath {
-        let insetRect: CGRect = if !screen.hasNotch {
-            switch (leadingEndCap, trailingEndCap) {
-            case (.square, .square):
-                CGRect(x: rect.origin.x, y: rect.origin.y + 1, width: rect.width, height: rect.height - 2)
-            case (.square, .round):
-                CGRect(x: rect.origin.x, y: rect.origin.y + 1, width: rect.width - 1, height: rect.height - 2)
-            case (.round, .square):
-                CGRect(x: rect.origin.x + 1, y: rect.origin.y + 1, width: rect.width - 1, height: rect.height - 2)
-            case (.round, .round):
-                CGRect(x: rect.origin.x + 1, y: rect.origin.y + 1, width: rect.width - 2, height: rect.height - 2)
+    private func shapePath(
+        in rect: CGRect,
+        leadingEndCap: MenuBarEndCap,
+        trailingEndCap: MenuBarEndCap,
+        screen: NSScreen
+    ) -> NSBezierPath {
+        let insetRect: CGRect =
+            if !screen.hasNotch {
+                switch (leadingEndCap, trailingEndCap) {
+                case (.square, .square):
+                    CGRect(
+                        x: rect.origin.x,
+                        y: rect.origin.y + 1,
+                        width: rect.width,
+                        height: rect.height - 2
+                    )
+                case (.square, .round):
+                    CGRect(
+                        x: rect.origin.x,
+                        y: rect.origin.y + 1,
+                        width: rect.width - 1,
+                        height: rect.height - 2
+                    )
+                case (.round, .square):
+                    CGRect(
+                        x: rect.origin.x + 1,
+                        y: rect.origin.y + 1,
+                        width: rect.width - 1,
+                        height: rect.height - 2
+                    )
+                case (.round, .round):
+                    CGRect(
+                        x: rect.origin.x + 1,
+                        y: rect.origin.y + 1,
+                        width: rect.width - 2,
+                        height: rect.height - 2
+                    )
+                }
+            } else {
+                rect
             }
-        } else {
-            rect
-        }
 
         let shapeBounds = CGRect(
             x: insetRect.minX + insetRect.height / 2,
@@ -492,22 +596,30 @@ private final class MenuBarOverlayPanelContentView: NSView {
 
         var path = NSBezierPath(rect: shapeBounds)
 
-        path = switch leadingEndCap {
-        case .square: path.union(NSBezierPath(rect: leadingEndCapBounds))
-        case .round: path.union(NSBezierPath(ovalIn: leadingEndCapBounds))
-        }
+        path =
+            switch leadingEndCap {
+            case .square: path.union(NSBezierPath(rect: leadingEndCapBounds))
+            case .round: path.union(NSBezierPath(ovalIn: leadingEndCapBounds))
+            }
 
-        path = switch trailingEndCap {
-        case .square: path.union(NSBezierPath(rect: trailingEndCapBounds))
-        case .round: path.union(NSBezierPath(ovalIn: trailingEndCapBounds))
-        }
+        path =
+            switch trailingEndCap {
+            case .square: path.union(NSBezierPath(rect: trailingEndCapBounds))
+            case .round: path.union(NSBezierPath(ovalIn: trailingEndCapBounds))
+            }
 
         return path
     }
 
     /// Returns a path for the ``MenuBarShapeKind/full`` shape kind.
-    private func pathForFullShape(in rect: CGRect, info: MenuBarFullShapeInfo, isInset: Bool, screen: NSScreen) -> NSBezierPath {
-        guard let appearanceManager = overlayPanel?.appState?.appearanceManager else {
+    private func pathForFullShape(
+        in rect: CGRect,
+        info: MenuBarFullShapeInfo,
+        isInset: Bool,
+        screen: NSScreen
+    ) -> NSBezierPath {
+        guard let appearanceManager = overlayPanel?.appState?.appearanceManager
+        else {
             return NSBezierPath()
         }
         var rect = rect
@@ -531,8 +643,14 @@ private final class MenuBarOverlayPanelContentView: NSView {
     }
 
     /// Returns a path for the ``MenuBarShapeKind/split`` shape kind.
-    private func pathForSplitShape(in rect: CGRect, info: MenuBarSplitShapeInfo, isInset: Bool, screen: NSScreen) -> NSBezierPath {
-        guard let appearanceManager = overlayPanel?.appState?.appearanceManager else {
+    private func pathForSplitShape(
+        in rect: CGRect,
+        info: MenuBarSplitShapeInfo,
+        isInset: Bool,
+        screen: NSScreen
+    ) -> NSBezierPath {
+        guard let appearanceManager = overlayPanel?.appState?.appearanceManager
+        else {
             return NSBezierPath()
         }
         var rect = rect
@@ -562,10 +680,18 @@ private final class MenuBarOverlayPanelContentView: NSView {
             } else {
                 maxX += 20
             }
-            return CGRect(x: rect.minX, y: rect.minY, width: maxX, height: rect.height)
+            return CGRect(
+                x: rect.minX,
+                y: rect.minY,
+                width: maxX,
+                height: rect.height
+            )
         }()
         let trailingPathBounds: CGRect = {
-            let itemWindows = MenuBarItem.getMenuBarItemWindows(on: screen.displayID, option: .onScreen)
+            let itemWindows = MenuBarItem.getMenuBarItemWindows(
+                on: screen.displayID,
+                option: .onScreen
+            )
             guard !itemWindows.isEmpty else {
                 return .zero
             }
@@ -581,10 +707,17 @@ private final class MenuBarOverlayPanelContentView: NSView {
             } else {
                 position -= 7
             }
-            return CGRect(x: position, y: rect.minY, width: rect.maxX - position, height: rect.height)
+            return CGRect(
+                x: position,
+                y: rect.minY,
+                width: rect.maxX - position,
+                height: rect.height
+            )
         }()
 
-        if leadingPathBounds == .zero || trailingPathBounds == .zero || leadingPathBounds.intersects(trailingPathBounds) {
+        if leadingPathBounds == .zero || trailingPathBounds == .zero
+            || leadingPathBounds.intersects(trailingPathBounds)
+        {
             return shapePath(
                 in: rect,
                 leadingEndCap: info.leading.leadingEndCap,
@@ -627,12 +760,16 @@ private final class MenuBarOverlayPanelContentView: NSView {
         case .noTint:
             break
         case .solid:
-            if let tintColor = NSColor(cgColor: configuration.tintColor)?.withAlphaComponent(0.2) {
+            if let tintColor = NSColor(cgColor: configuration.tintColor)?
+                .withAlphaComponent(0.2)
+            {
                 tintColor.setFill()
                 rect.fill()
             }
         case .gradient:
-            if let tintGradient = configuration.tintGradient.withAlpha(0.2).nsGradient(using: .displayP3) {
+            if let tintGradient = configuration.tintGradient.withAlpha(0.2)
+                .nsGradient(using: .displayP3)
+            {
                 tintGradient.draw(in: rect, angle: 0)
             }
         }
@@ -648,24 +785,25 @@ private final class MenuBarOverlayPanelContentView: NSView {
 
         let drawableBounds = getDrawableBounds()
 
-        let shapePath = switch fullConfiguration.shapeKind {
-        case .noShape:
-            NSBezierPath(rect: drawableBounds)
-        case .full:
-            pathForFullShape(
-                in: drawableBounds,
-                info: fullConfiguration.fullShapeInfo,
-                isInset: fullConfiguration.isInset,
-                screen: overlayPanel.owningScreen
-            )
-        case .split:
-            pathForSplitShape(
-                in: drawableBounds,
-                info: fullConfiguration.splitShapeInfo,
-                isInset: fullConfiguration.isInset,
-                screen: overlayPanel.owningScreen
-            )
-        }
+        let shapePath =
+            switch fullConfiguration.shapeKind {
+            case .noShape:
+                NSBezierPath(rect: drawableBounds)
+            case .full:
+                pathForFullShape(
+                    in: drawableBounds,
+                    info: fullConfiguration.fullShapeInfo,
+                    isInset: fullConfiguration.isInset,
+                    screen: overlayPanel.owningScreen
+                )
+            case .split:
+                pathForSplitShape(
+                    in: drawableBounds,
+                    info: fullConfiguration.splitShapeInfo,
+                    isInset: fullConfiguration.isInset,
+                    screen: overlayPanel.owningScreen
+                )
+            }
 
         var hasBorder = false
 
@@ -723,7 +861,10 @@ private final class MenuBarOverlayPanelContentView: NSView {
                 shadowClipPath.append(shapePath.reversed)
                 shadowClipPath.setClip()
 
-                shapePath.drawShadow(color: .black.withAlphaComponent(0.5), radius: 5)
+                shapePath.drawShadow(
+                    color: .black.withAlphaComponent(0.5),
+                    radius: 5
+                )
             }
 
             if configuration.hasBorder {
@@ -741,8 +882,7 @@ private final class MenuBarOverlayPanelContentView: NSView {
                 drawTint(in: drawableBounds)
             }
 
-            if
-                hasBorder,
+            if hasBorder,
                 let borderColor = NSColor(cgColor: configuration.borderColor)
             {
                 context.saveGraphicsState()
@@ -750,24 +890,25 @@ private final class MenuBarOverlayPanelContentView: NSView {
                     context.restoreGraphicsState()
                 }
 
-                let borderPath = switch fullConfiguration.shapeKind {
-                case .noShape:
-                    NSBezierPath(rect: drawableBounds)
-                case .full:
-                    pathForFullShape(
-                        in: drawableBounds,
-                        info: fullConfiguration.fullShapeInfo,
-                        isInset: fullConfiguration.isInset,
-                        screen: overlayPanel.owningScreen
-                    )
-                case .split:
-                    pathForSplitShape(
-                        in: drawableBounds,
-                        info: fullConfiguration.splitShapeInfo,
-                        isInset: fullConfiguration.isInset,
-                        screen: overlayPanel.owningScreen
-                    )
-                }
+                let borderPath =
+                    switch fullConfiguration.shapeKind {
+                    case .noShape:
+                        NSBezierPath(rect: drawableBounds)
+                    case .full:
+                        pathForFullShape(
+                            in: drawableBounds,
+                            info: fullConfiguration.fullShapeInfo,
+                            isInset: fullConfiguration.isInset,
+                            screen: overlayPanel.owningScreen
+                        )
+                    case .split:
+                        pathForSplitShape(
+                            in: drawableBounds,
+                            info: fullConfiguration.splitShapeInfo,
+                            isInset: fullConfiguration.isInset,
+                            screen: overlayPanel.owningScreen
+                        )
+                    }
 
                 // HACK: Insetting a path to get an "inside" stroke is surprisingly
                 // difficult. We can fake the correct line width by doubling it, as

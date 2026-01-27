@@ -29,7 +29,8 @@ final class MenuBarItemSpacingManager {
         let failedApps: [String]
 
         var errorDescription: String? {
-            "The following applications failed to quit and were not restarted:\n" + failedApps.joined(separator: "\n")
+            "The following applications failed to quit and were not restarted:\n"
+                + failedApps.joined(separator: "\n")
         }
 
         var recoverySuggestion: String? {
@@ -48,7 +49,9 @@ final class MenuBarItemSpacingManager {
     var offset = 0
 
     /// Runs a command with the given arguments.
-    private func runCommand(_ command: String, with arguments: [String]) async throws {
+    private func runCommand(_ command: String, with arguments: [String])
+        async throws
+    {
         let process = Process()
 
         process.executableURL = URL(filePath: "/usr/bin/env")
@@ -64,21 +67,34 @@ final class MenuBarItemSpacingManager {
 
     /// Removes the value for the specified key.
     private func removeValue(forKey key: Key) async throws {
-        try await runCommand("defaults", with: ["-currentHost", "delete", "-globalDomain", key.rawValue])
+        try await runCommand(
+            "defaults",
+            with: ["-currentHost", "delete", "-globalDomain", key.rawValue]
+        )
     }
 
     /// Sets the value for the specified key to the key's default value plus the given offset.
     private func setOffset(_ offset: Int, forKey key: Key) async throws {
-        try await runCommand("defaults", with: ["-currentHost", "write", "-globalDomain", key.rawValue, "-int", String(key.defaultValue + offset)])
+        try await runCommand(
+            "defaults",
+            with: [
+                "-currentHost", "write", "-globalDomain", key.rawValue, "-int",
+                String(key.defaultValue + offset),
+            ]
+        )
     }
 
     /// Asynchronously signals the given app to quit.
     private func signalAppToQuit(_ app: NSRunningApplication) async throws {
         if app.isTerminated {
-            logger.debug("Application \"\(app.logString, privacy: .public)\" is already terminated")
+            logger.debug(
+                "Application \"\(app.logString, privacy: .public)\" is already terminated"
+            )
             return
         } else {
-            logger.debug("Signaling application \"\(app.logString, privacy: .public)\" to quit")
+            logger.debug(
+                "Signaling application \"\(app.logString, privacy: .public)\" to quit"
+            )
         }
 
         app.terminate()
@@ -95,6 +111,13 @@ final class MenuBarItemSpacingManager {
                         """
                     )
                     app.forceTerminate()
+
+                    // Failsafe: if KVO doesn't fire after force terminate, resume anyway to prevent hang
+                    try? await Task.sleep(for: .seconds(1))
+                    if !Task.isCancelled {
+                        cancellable?.cancel()
+                        continuation.resume()
+                    }
                 }
             }
 
@@ -107,16 +130,25 @@ final class MenuBarItemSpacingManager {
                 }
                 timeoutTask.cancel()
                 cancellable?.cancel()
-                logger.debug("Application \"\(app.logString, privacy: .public)\" terminated successfully")
+                logger.debug(
+                    "Application \"\(app.logString, privacy: .public)\" terminated successfully"
+                )
                 continuation.resume()
             }
         }
     }
 
     /// Asynchronously launches the app at the given URL.
-    private nonisolated func launchApp(at applicationURL: URL, bundleIdentifier: String) async throws {
-        if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleIdentifier }) {
-            logger.debug("Application \"\(app.logString, privacy: .public)\" is already open, so skipping launch")
+    private nonisolated func launchApp(
+        at applicationURL: URL,
+        bundleIdentifier: String
+    ) async throws {
+        if let app = NSWorkspace.shared.runningApplications.first(where: {
+            $0.bundleIdentifier == bundleIdentifier
+        }) {
+            logger.debug(
+                "Application \"\(app.logString, privacy: .public)\" is already open, so skipping launch"
+            )
             return
         }
         let configuration = NSWorkspace.OpenConfiguration()
@@ -124,12 +156,15 @@ final class MenuBarItemSpacingManager {
         configuration.addsToRecentItems = false
         configuration.createsNewApplicationInstance = false
         configuration.promptsUserIfNeeded = false
-        try await NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration)
+        try await NSWorkspace.shared.openApplication(
+            at: applicationURL,
+            configuration: configuration
+        )
     }
 
     /// Asynchronously relaunches the given app.
     private func relaunchApp(_ app: NSRunningApplication) async throws {
-        struct RelaunchError: Error { }
+        struct RelaunchError: Error {}
         guard
             let url = app.bundleURL,
             let bundleIdentifier = app.bundleIdentifier
@@ -167,7 +202,7 @@ final class MenuBarItemSpacingManager {
             for pid in pids {
                 guard
                     let app = NSRunningApplication(processIdentifier: pid),
-                    app.bundleIdentifier != "com.apple.controlcenter", // ControlCenter handles its own relaunch, so skip it.
+                    app.bundleIdentifier != "com.apple.controlcenter",  // ControlCenter handles its own relaunch, so skip it.
                     app != .current
                 else {
                     break
@@ -181,9 +216,12 @@ final class MenuBarItemSpacingManager {
                         }
                         if app.bundleIdentifier == "com.apple.Spotlight" {
                             // Spotlight automatically relaunches, so only consider it a failure if it never quit.
-                            if
-                                let latestSpotlightInstance = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Spotlight").first,
-                                latestSpotlightInstance.processIdentifier == app.processIdentifier
+                            if let latestSpotlightInstance =
+                                NSRunningApplication.runningApplications(
+                                    withBundleIdentifier: "com.apple.Spotlight"
+                                ).first,
+                                latestSpotlightInstance.processIdentifier
+                                    == app.processIdentifier
                             {
                                 failedApps.append(name)
                             }
@@ -197,7 +235,9 @@ final class MenuBarItemSpacingManager {
 
         try? await Task.sleep(for: .milliseconds(100))
 
-        if let app = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.controlcenter").first {
+        if let app = NSRunningApplication.runningApplications(
+            withBundleIdentifier: "com.apple.controlcenter"
+        ).first {
             do {
                 try await signalAppToQuit(app)
             } catch {
@@ -213,9 +253,9 @@ final class MenuBarItemSpacingManager {
     }
 }
 
-private extension NSRunningApplication {
+extension NSRunningApplication {
     /// A string to use for logging purposes.
-    var logString: String {
+    fileprivate var logString: String {
         localizedName ?? bundleIdentifier ?? "<NIL>"
     }
 }
