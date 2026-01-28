@@ -60,7 +60,7 @@ final class MenuBarItemImageCache: ObservableObject {
 
     /// Configuration for failed capture handling
     private static let maxFailuresBeforeBlacklist = 3
-    private static let blacklistCooldownSeconds: TimeInterval = 300  // 5 minutes
+    private static let blacklistCooldownSeconds: TimeInterval = 300 // 5 minutes
 
     /// Logger for the menu bar item image cache.
     private let logger = Logger(
@@ -187,10 +187,10 @@ final class MenuBarItemImageCache: ObservableObject {
                 with: windowIDs,
                 option: captureOption
             ),
-            CGFloat(compositeImage.width) == boundsUnion.width * scale,  // Safety check.
+            CGFloat(compositeImage.width) == boundsUnion.width * scale, // Safety check.
             !compositeImage.isTransparent()
         else {
-            result.excluded = items  // Exclude all items.
+            result.excluded = items // Exclude all items.
             return result
         }
 
@@ -297,7 +297,7 @@ final class MenuBarItemImageCache: ObservableObject {
         let compositeResult = compositeCapture(items, scale: scale)
 
         if compositeResult.excluded.isEmpty {
-            return compositeResult  // All items captured successfully.
+            return compositeResult // All items captured successfully.
         }
 
         logger.notice(
@@ -649,7 +649,7 @@ final class MenuBarItemImageCache: ObservableObject {
                 await appState.navigationState.isAppFrontmost,
                 await appState.navigationState.isSettingsPresented,
                 await appState.navigationState.settingsNavigationIdentifier
-                    == .menuBarLayout
+                == .menuBarLayout
             else {
                 return
             }
@@ -684,9 +684,8 @@ final class MenuBarItemImageCache: ObservableObject {
 
         if isSettingsPresented || isSearchPresented {
             sectionsNeedingDisplay = MenuBarSection.Name.allCases
-        } else if isIceBarPresented,
-            let section = await appState.menuBarManager.iceBarPanel
-                .currentSection
+        } else if isIceBarPresented, let section = await appState.menuBarManager.iceBarPanel
+            .currentSection
         {
             sectionsNeedingDisplay.append(section)
         }

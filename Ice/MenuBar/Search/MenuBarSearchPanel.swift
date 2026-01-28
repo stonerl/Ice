@@ -53,7 +53,9 @@ final class MenuBarSearchPanel: NSPanel {
     }
 
     /// Overridden to always be `true`.
-    override var canBecomeKey: Bool { true }
+    override var canBecomeKey: Bool {
+        true
+    }
 
     /// Creates a menu bar search panel.
     init() {
@@ -98,9 +100,8 @@ final class MenuBarSearchPanel: NSPanel {
         NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
             .sink { [weak self] _ in
                 guard let self else { return }
-                // saveFrame(usingName: frameAutosaveName)
-                if let frameString = frame.dictionaryRepresentation as NSDictionary? {
-                    Defaults.set(frameString, forKey: .menuBarSearchPanelFrame)
+                if let screen = self.screen {
+                    self.saveFrameForDisplay(screen)
                 }
             }
             .store(in: &c)
@@ -115,6 +116,7 @@ final class MenuBarSearchPanel: NSPanel {
             )
         )
         .sink { [weak self] _ in
+            // Force close and clear any cached screen references on hot-plug
             self?.close()
         }
         .store(in: &c)
@@ -148,51 +150,34 @@ final class MenuBarSearchPanel: NSPanel {
             )
             hostingView.setFrameSize(hostingView.intrinsicContentSize)
 
-            // Only set initial position if we don't have a saved frame,
-            // or if the saved frame is off-screen.
-            if
-                let frameDict = Defaults.dictionary(forKey: .menuBarSearchPanelFrame),
-                let savedFrame = CGRect(dictionaryRepresentation: frameDict as CFDictionary)
-            {
-                // We restored a frame, but let's make sure the content size is correct
-                // and it's on the correct screen if requested
-                var newFrame = savedFrame
-                newFrame.size = hostingView.intrinsicContentSize
+            // Try to load saved frame for current display
+            if let savedFrame = loadFrameForDisplay(screen) {
+                // Convert relative position back to absolute coordinates
+                let visibleFrame = screen.visibleFrame
+                let absoluteFrame = CGRect(
+                    x: savedFrame.origin.x + visibleFrame.minX,
+                    y: savedFrame.origin.y + visibleFrame.minY,
+                    width: hostingView.intrinsicContentSize.width,
+                    height: hostingView.intrinsicContentSize.height
+                )
 
-                if let savedScreen = NSScreen.screens.first(where: { $0.frame.intersects(savedFrame) }) {
-                    // Calculate relative center position (0.0 to 1.0) based on visible frame (excluding menu bar)
-                    let savedVisibleFrame = savedScreen.visibleFrame
-                    let relMidX = (savedFrame.midX - savedVisibleFrame.minX) / savedVisibleFrame.width
-                    let relMidY = (savedFrame.midY - savedVisibleFrame.minY) / savedVisibleFrame.height
+                // Ensure frame is within this display's visible frame
+                let adjustedFrame = CGRect(
+                    x: max(visibleFrame.minX, min(absoluteFrame.origin.x, visibleFrame.maxX - hostingView.intrinsicContentSize.width)),
+                    y: max(visibleFrame.minY, min(absoluteFrame.origin.y, visibleFrame.maxY - hostingView.intrinsicContentSize.height)),
+                    width: hostingView.intrinsicContentSize.width,
+                    height: hostingView.intrinsicContentSize.height
+                )
 
-                    // Apply to new screen's visible frame to get new center
-                    let currentVisibleFrame = screen.visibleFrame
-                    let newMidX = currentVisibleFrame.minX + (relMidX * currentVisibleFrame.width)
-                    let newMidY = currentVisibleFrame.minY + (relMidY * currentVisibleFrame.height)
-
-                    // Calculate new origin based on new center and window size
-                    let newOriginX = newMidX - (newFrame.width / 2)
-                    let newOriginY = newMidY - (newFrame.height / 2)
-
-                    newFrame.origin = CGPoint(x: newOriginX, y: newOriginY)
-                } else {
-                    let centered = CGPoint(
-                        x: screen.frame.midX - newFrame.width / 2,
-                        y: screen.frame.midY - newFrame.height / 2
-                    )
-                    newFrame.origin = centered
-                }
-
-                setFrame(newFrame, display: false)
+                setFrame(adjustedFrame, display: false)
             } else {
-                // Calculate the centered position.
+                // No saved frame for this display, center on screen
                 let centered = CGPoint(
-                    x: screen.frame.midX - hostingView.intrinsicContentSize.width / 2,
-                    y: screen.frame.midY - hostingView.intrinsicContentSize.height / 2
+                    x: screen.visibleFrame.midX - hostingView.intrinsicContentSize.width / 2,
+                    y: screen.visibleFrame.midY - hostingView.intrinsicContentSize.height / 2
                 )
 
                 setFrame(CGRect(origin: centered, size: hostingView.intrinsicContentSize), display: false)
-                // center() // Not needed if we calculated it manually
             }
 
             contentView = hostingView
@@ -210,15 +195,61 @@ final class MenuBarSearchPanel: NSPanel {
 
     /// Dismisses the search panel.
     override func close() {
-        // saveFrame(usingName: frameAutosaveName)
-        if let frameString = frame.dictionaryRepresentation as NSDictionary? {
-            Defaults.set(frameString, forKey: .menuBarSearchPanelFrame)
+        // Only save if window is actually visible and has content
+        if isVisible, let screen = screen, contentView != nil {
+            saveFrameForDisplay(screen)
         }
         super.close()
         contentView = nil
         mouseDownMonitor.stop()
         keyDownMonitor.stop()
         appState?.navigationState.isSearchPresented = false
+    }
+
+    /// Saves the frame for a specific display.
+    private func saveFrameForDisplay(_ screen: NSScreen) {
+        // Only save if window is visible and has content
+        guard isVisible, contentView != nil else {
+            return
+        }
+
+        // Get current window frame and ensure we're saving from the right screen
+        let currentFrame = frame
+        let actualScreen = NSScreen.screens.first { $0.visibleFrame.intersects(currentFrame) } ?? screen
+
+        guard let uuidString = Bridging.getDisplayUUIDString(for: actualScreen.displayID) else {
+            return
+        }
+
+        // Save position relative to the display's visible frame for consistency
+        let visibleFrame = actualScreen.visibleFrame
+        let relativeFrame = CGRect(
+            x: currentFrame.minX - visibleFrame.minX,
+            y: currentFrame.minY - visibleFrame.minY,
+            width: currentFrame.width,
+            height: currentFrame.height
+        )
+
+        let keyString = "\(Defaults.Key.menuBarSearchPanelFrameWithConfig.rawValue)\(uuidString)"
+        UserDefaults.standard.set(relativeFrame.dictionaryRepresentation as NSDictionary, forKey: keyString)
+        UserDefaults.standard.synchronize()
+    }
+
+    /// Loads the saved frame for a specific display.
+    private func loadFrameForDisplay(_ screen: NSScreen) -> CGRect? {
+        guard let uuidString = Bridging.getDisplayUUIDString(for: screen.displayID) else {
+            return nil
+        }
+        let keyString = "\(Defaults.Key.menuBarSearchPanelFrameWithConfig.rawValue)\(uuidString)"
+
+        guard let frameDict = UserDefaults.standard.dictionary(forKey: keyString) else {
+            return nil
+        }
+
+        guard let savedFrame = CGRect(dictionaryRepresentation: frameDict as CFDictionary) else {
+            return nil
+        }
+        return savedFrame
     }
 }
 
@@ -338,7 +369,6 @@ private struct MenuBarSearchContentView: View {
         }
     }
 
-    @ViewBuilder
     private var bottomBar: some View {
         HStack {
             SettingsButton {
@@ -623,7 +653,6 @@ private struct MenuBarSearchItemView: View {
         .padding(padding)
     }
 
-    @ViewBuilder
     private var labelText: some View {
         Text(item.displayName)
     }
@@ -653,7 +682,6 @@ private struct MenuBarSearchItemView: View {
         }
     }
 
-    @ViewBuilder
     private var itemView: some View {
         Image(nsImage: itemImage)
             .frame(

@@ -109,6 +109,40 @@ extension Bridging {
 
     // MARK: Public Display API
 
+    /// Returns the UUID string for a given display ID.
+    /// - Parameter displayID: The display identifier.
+    /// - Returns: The UUID string for display, or nil if unavailable.
+    static func getDisplayUUIDString(for displayID: CGDirectDisplayID) -> String? {
+        guard let uuid = getDisplayUUID(for: displayID) else {
+            return nil
+        }
+        return CFUUIDCreateString(nil, uuid) as String?
+    }
+
+    /// Returns the display ID for a given UUID string.
+    /// - Parameter uuidString: The UUID string of the display.
+    /// - Returns: The display ID, or nil if not found.
+    static func getDisplayID(for uuidString: String) -> CGDirectDisplayID? {
+        guard let uuid = CFUUIDCreateFromString(nil, uuidString as CFString) else {
+            return nil
+        }
+        return getActiveDisplayList().first { displayID in
+            guard let displayUUID = getDisplayUUID(for: displayID) else {
+                return false
+            }
+            return CFEqual(displayUUID, uuid)
+        }
+    }
+
+    /// Returns the UUID string for the display with active menu bar.
+    /// - Returns: The UUID string of the active menu bar display, or nil if unavailable.
+    static func getActiveMenuBarDisplayUUID() -> String? {
+        guard let displayID = getActiveMenuBarDisplayID() else {
+            return nil
+        }
+        return getDisplayUUIDString(for: displayID)
+    }
+
     /// Returns the identifier of the display with the active menu bar.
     static func getActiveMenuBarDisplayID() -> CGDirectDisplayID? {
         guard

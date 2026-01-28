@@ -165,6 +165,7 @@ extension Defaults {
 
         // MARK: Internal
         case menuBarSearchPanelFrame = "MenuBarSearchPanelFrame"
+        case menuBarSearchPanelFrameWithConfig = "MenuBarSearchPanelFrame_"
 
         // MARK: Appearance Settings
         case menuBarAppearanceConfigurationV2 = "MenuBarAppearanceConfigurationV2"
