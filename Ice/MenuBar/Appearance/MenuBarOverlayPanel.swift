@@ -43,8 +43,32 @@ final class MenuBarOverlayPanel: NSPanel {
             operation: @escaping () async throws -> Void
         ) {
             cancelTask(for: flag)
-            tasks[flag] = Task.detached(timeout: timeout) {
+            tasks[flag] = Task.detached {
+                try await Self.runWithTimeout(timeout, operation: operation)
+            }
+        }
+
+        /// Runs an operation with a timeout, cancelling it if the timeout elapses.
+        private static func runWithTimeout(
+            _ timeout: Duration,
+            operation: @escaping () async throws -> Void
+        ) async throws {
+            let operationTask = Task {
                 try await operation()
+            }
+            let timeoutTask = Task {
+                try await Task.sleep(for: timeout)
+                operationTask.cancel()
+                throw CancellationError()
+            }
+
+            do {
+                try await operationTask.value
+                timeoutTask.cancel()
+            } catch {
+                timeoutTask.cancel()
+                operationTask.cancel()
+                throw error
             }
         }
 
